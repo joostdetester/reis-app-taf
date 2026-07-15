@@ -15,12 +15,21 @@ Then('the day card for today shows the date', async ({ page }) => {
   await expect(new TodayPage(page).dayCard(0).date).not.toBeEmpty();
 });
 
+// Like the practical-information weather forecast, this comes from a live
+// third-party API call that has been observed to occasionally run past
+// Playwright's default 5s assertion timeout on CI runners - see
+// steps/practical-information.steps.ts for the confirmed cause. Widened here
+// too since it hits the same `.day-weather` live fetch.
 Then('the day card for today shows a weather forecast', async ({ page }) => {
-  await expect(new TodayPage(page).dayCard(0).weather).toContainText(/\d+°/);
+  await expect(new TodayPage(page).dayCard(0).weather).toContainText(/\d+°/, {
+    timeout: 20_000,
+  });
 });
 
 Then('the day card for today shows a beach score', async ({ page }) => {
-  await expect(new TodayPage(page).dayCard(0).weather).toContainText(/🏖️\s*[\d.]+\/10/);
+  await expect(new TodayPage(page).dayCard(0).weather).toContainText(/🏖️\s*[\d.]+\/10/, {
+    timeout: 20_000,
+  });
 });
 
 Then(
