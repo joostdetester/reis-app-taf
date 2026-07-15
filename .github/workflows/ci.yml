@@ -39,7 +39,7 @@ jobs:
 
       - run: npm run typecheck
 
-  # Playwright and Accessibility only start once lint+typecheck are green —
+  # E2E and Accessibility only start once lint+typecheck are green —
   # no point spending browser-install + test time on code that fails the
   # cheap static checks first. `needs:` already skips this job on failure,
   # no extra `if:` needed.
@@ -88,7 +88,7 @@ jobs:
           API_BASE_URL: ${{ secrets.API_BASE_URL }}
 
       # Raw Allure result files (not the generated HTML report yet) — the
-      # test-summary job below merges this with the Playwright job's results
+      # test-summary job below merges this with the E2E job's results
       # into one combined Allure report. `if: always()` so a failing run
       # still uploads whatever results it produced.
       - name: Upload Allure results
@@ -118,7 +118,7 @@ jobs:
           if-no-files-found: warn
 
   playwright:
-    name: Playwright
+    name: E2E
     runs-on: ubuntu-latest
     needs: [lint, typecheck]
     environment: "${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'acceptance' && 'acceptance' || 'test' }}"
@@ -145,7 +145,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: allure-results-playwright
+          name: allure-results-e2e
           path: allure-results/
           if-no-files-found: warn
 
@@ -191,11 +191,11 @@ jobs:
 
       - run: npm install
 
-      - name: Download Playwright Allure results
+      - name: Download E2E Allure results
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          name: allure-results-playwright
+          name: allure-results-e2e
           path: allure-results
 
       - name: Download Accessibility Allure results

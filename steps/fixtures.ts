@@ -17,8 +17,14 @@ export const test = base.extend<BddFixtures & { _allureMeta: void }>({
         await safeAllure(() => allure.tags(...tags));
       }
 
-      const typeTags = new Set(['api', 'ui', 'db', 'e2e']);
-      const type = tags.find((t) => typeTags.has(t));
+      // Accessibility scenarios also carry @ui (they exercise UI pages), but
+      // they must not land in the same "ui" epic/feature bucket as ordinary
+      // E2E tests - checked before the generic typeTags lookup so it wins
+      // regardless of tag order on the Feature line.
+      const typeTags = new Set(['api', 'ui', 'db', 'e2e', 'accessibility']);
+      const type = tags.includes('accessibility')
+        ? 'accessibility'
+        : tags.find((t) => typeTags.has(t));
       if (type) {
         await safeAllure(() => allure.feature(type));
         await safeAllure(() => allure.label('type', type));
@@ -29,6 +35,12 @@ export const test = base.extend<BddFixtures & { _allureMeta: void }>({
       } else if (tags.includes('smoke')) {
         await safeAllure(() => allure.severity('normal'));
       }
+
+      // Top-level Suites grouping: Accessibility vs E2E, so the two test
+      // types show as separate branches instead of one flat list of
+      // per-feature suites.
+      const parentSuite = tags.includes('accessibility') ? 'Accessibility' : 'E2E';
+      await safeAllure(() => allure.parentSuite(parentSuite));
 
       const suiteName = suiteNameFromFile(testInfo.file);
       if (suiteName) {
