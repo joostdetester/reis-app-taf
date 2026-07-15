@@ -23,7 +23,14 @@ When('the user selects a different city in the weather selector', async ({ page,
 
 Then('the 14-day weather forecast for that city is shown', async ({ page, world }) => {
   const practical = new PracticalPage(page);
-  await expect(practical.forecastDays).toHaveCount(14);
+  // The forecast comes from a live third-party API (open-meteo.com) called
+  // straight from the browser after the city is selected - it shows "Laden…"
+  // until that call resolves. Locally it resolves in ~200ms, but on CI
+  // runners it has been observed still loading past Playwright's default 5s
+  // assertion timeout (confirmed via a CI failure's page snapshot showing
+  // "Laden…" at the 5s mark, not an error state) - so this assertion gets a
+  // longer, explicit timeout rather than failing on live-API latency.
+  await expect(practical.forecastDays).toHaveCount(14, { timeout: 20_000 });
   await expect(practical.citySelect).toHaveValue(world.selectedCity);
 });
 
