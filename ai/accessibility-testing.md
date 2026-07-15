@@ -126,6 +126,18 @@ directly in that file. CI builds this report in the `accessibility` job
   into broad E2E flows.
 - Attach full scan output so findings can be reviewed even when the test
   passes (see Reporting above).
-- List the additional entry pages for this project's first accessibility
-  pass here (e.g. the login page, the main landing page, the primary
-  conversion flow) once known.
+
+## Pages covered
+Every main-navigation page is scanned at all three WCAG levels (see
+`features/accessibility.feature`):
+
+- Today (`#/today`)
+- Trip overview (`#/trip`)
+- Hotels (`#/hotels`)
+- Flights (`#/transport`)
+- Photos (`#/photos`)
+- Practical information (`#/practical`)
+
+Not yet covered: transient in-page states (e.g. an open inline edit form) and
+the edit-token view. Add those as their own scenarios, reusing the existing
+steps to reach that state, if/when they need dedicated a11y coverage.
