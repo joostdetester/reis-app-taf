@@ -139,6 +139,7 @@ jobs:
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
           API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          EDIT_TOKEN: ${{ secrets.EDIT_TOKEN }}
 
       - name: Upload Allure results
         if: always()
