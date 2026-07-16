@@ -42,9 +42,17 @@ export const test = base.extend<BddFixtures & { _allureMeta: void }>({
       const parentSuite = tags.includes('accessibility') ? 'Accessibility' : 'E2E';
       await safeAllure(() => allure.parentSuite(parentSuite));
 
+      // One folder per browser/device project under each parentSuite - most
+      // scenarios only run on `chromium` (the cross-browser/mobile-viewport
+      // projects only add @smoke + @accessibility), so the browser goes at
+      // the `suite` level and the feature name one level deeper as
+      // `subSuite`; putting the feature name at `suite` instead would mean
+      // most browser folders contain just one or two entries.
+      await safeAllure(() => allure.suite(projectDisplayName(testInfo.project.name)));
+
       const suiteName = suiteNameFromFile(testInfo.file);
       if (suiteName) {
-        await safeAllure(() => allure.suite(suiteName));
+        await safeAllure(() => allure.subSuite(suiteName));
       }
 
       await use();
@@ -65,6 +73,17 @@ async function safeAllure(action: () => Promise<void>): Promise<void> {
   } catch {
     // Allure calls should never fail the test run (e.g. when running without the Allure reporter).
   }
+}
+
+const PROJECT_DISPLAY_NAMES: Record<string, string> = {
+  chromium: 'Chromium',
+  webkit: 'WebKit',
+  'mobile-chrome': 'Mobile Chrome',
+  'mobile-safari': 'Mobile Safari',
+};
+
+function projectDisplayName(projectName: string): string {
+  return PROJECT_DISPLAY_NAMES[projectName] ?? projectName;
 }
 
 function normalizeTag(tag: string): string {

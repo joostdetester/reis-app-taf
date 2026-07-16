@@ -246,13 +246,19 @@ jobs:
       # reachable (see the note on this job above), so nothing from the
       # environment secrets belongs here, even values that happen to be
       # harmless for today's demo SUT.
+      #
+      # Appends (`>>`) rather than overwrites: the accessibility/playwright
+      # jobs' globalSetup (config/version-tracking.ts) already wrote the
+      # tested app/third-party versions into this same file before it was
+      # uploaded as an artifact and downloaded above - a plain `>` here
+      # silently discarded that.
       - name: Write Allure environment info
         run: |
           {
             echo "Environment=${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'acceptance' && 'acceptance' || 'test' }}"
             echo "Branch=${{ github.ref_name }}"
             echo "Node.js=$(node --version)"
-          } > allure-results/environment.properties
+          } >> allure-results/environment.properties
 
       # Fills the "Executors" widget with a link back to the CI run.
       - name: Write Allure executor info

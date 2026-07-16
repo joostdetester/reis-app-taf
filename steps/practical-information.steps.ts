@@ -74,8 +74,17 @@ Then(
     );
     const match = rateText.match(/(\d{4}-\d{2}-\d{2})/);
     expect(match, `Expected an exchange-rate date in "${rateText}"`).not.toBeNull();
-    const today = new Date().toISOString().slice(0, 10);
-    expect(match![1]).toBe(today);
+    // The live rate's date comes from the third-party FX API's own daily
+    // publish cycle, not this test's clock - confirmed on CI (stable across
+    // all 3 attempts, so not a flaky race) that the API can still be serving
+    // yesterday's dated rate for a while after UTC midnight, presumably
+    // because its daily refresh runs later than that. Accepting either date
+    // still catches a genuinely stale/broken rate (anything older than
+    // yesterday), just not this one-day publish lag outside the app's control.
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const acceptableDates = [now, yesterday].map((d) => d.toISOString().slice(0, 10));
+    expect(acceptableDates).toContain(match![1]);
   },
 );
 
