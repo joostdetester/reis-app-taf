@@ -17,6 +17,17 @@ Given('the user opens the practical information page', async ({ page, world }) =
   world.nav = nav;
 });
 
+// The page shows a brief "Laden…" placeholder before its real content (which
+// is considerably taller) mounts, and the nested weather forecast widget has
+// its own, separate loading state that resolves later still (its own live
+// open-meteo call) - needed as an explicit step rather than folded into the
+// Given above, for scenarios that measure page height/layout and would
+// otherwise race either of those two swaps.
+Given('the practical information page has finished loading', async ({ page, world }) => {
+  await world.nav.practicalHeading.waitFor({ state: 'visible' });
+  await expect(new PracticalPage(page).forecastDays).toHaveCount(14, { timeout: 20_000 });
+});
+
 When('the user selects a different city in the weather selector', async ({ page, world }) => {
   world.selectedCity = await new PracticalPage(page).selectSecondCity();
 });

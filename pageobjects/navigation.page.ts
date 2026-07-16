@@ -35,6 +35,30 @@ export class NavigationPage {
     await this.page.getByTestId(NAV_TESTID[route]).click();
   }
 
+  // Real touch tap rather than click() - only meaningful (and only allowed
+  // by Playwright) on a context with hasTouch enabled, i.e. the mobile
+  // projects, since desktop Chrome/Safari device presets set hasTouch:false.
+  async tapTo(route: MainRoute): Promise<void> {
+    await this.page.getByTestId(NAV_TESTID[route]).tap();
+  }
+
+  headingFor(route: MainRoute): Locator {
+    switch (route) {
+      case 'today':
+        return this.todayCard;
+      case 'trip':
+        return this.tripToolbar;
+      case 'hotels':
+        return this.hotelsHeading;
+      case 'flights':
+        return this.flightsHeading;
+      case 'photos':
+        return this.photosHeading;
+      case 'practical':
+        return this.practicalHeading;
+    }
+  }
+
   async visitRoute(route: MainRoute): Promise<void> {
     await this.page.goto(ROUTE_PATHS[route]);
   }
@@ -60,6 +84,16 @@ export class NavigationPage {
 
   get tripToolbar(): Locator {
     return this.page.getByTestId('trip-view-toolbar');
+  }
+
+  get bottomNav(): Locator {
+    return this.page.getByTestId('bottom-nav');
+  }
+
+  // The last rendered block inside <main> - used to check it isn't hidden
+  // behind the fixed-position bottom nav once scrolled into view.
+  get lastMainContent(): Locator {
+    return this.page.locator('main > *').last();
   }
 
   get hotelsHeading(): Locator {

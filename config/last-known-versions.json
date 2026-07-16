@@ -1,6 +1,7 @@
 {
   "reis-app": {
-    "version": "unknown"
+    "version": "2026.07.16-0828",
+    "commit": "24aa48b559844bb68050e764883844cd6c8374d9"
   },
   "open-meteo": {
     "version": "v1"

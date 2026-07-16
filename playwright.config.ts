@@ -65,26 +65,34 @@ export default defineConfig({
   // playwright/lib/runner/loadUtils.js - project-level grep filters first,
   // then the CLI grep filters again on top). So webkit naturally runs zero
   // accessibility tests (its @smoke set has no @accessibility overlap),
-  // while the mobile projects' (@smoke|@accessibility) set collapses to
-  // just @accessibility under test:a11y's CLI grep, and just @smoke under
-  // test:e2e's CLI grep-invert - no CI script changes needed.
+  // while the mobile projects' (@smoke|@accessibility|@mobile) set collapses
+  // to just @accessibility under test:a11y's CLI grep, and @smoke/@mobile
+  // under test:e2e's CLI grep-invert - no CI script changes needed.
+  //
+  // `@mobile` (features/mobile-layout.feature) is the dedicated mobile-
+  // viewport functional coverage - only meaningful on the two mobile
+  // projects. `@touch` marks the one scenario among those that calls
+  // Locator.tap(), which Playwright only allows on a context with
+  // hasTouch:true - desktop Chrome/Safari device presets set hasTouch:false,
+  // so chromium excludes it via grepInvert (webkit already excludes it too,
+  // since its grep only matches @smoke).
   projects: [
     // No device preset here (unlike the projects below): 'Desktop Chrome'
     // sets a fixed viewport, which would override the WINDOW_FULLSCREEN /
     // WINDOW_POSITION+SIZE viewport:null branch above and break local headed
     // debugging. Omitting `use` keeps this project identical to today's
     // single-project setup (browserName defaults to chromium).
-    { name: 'chromium' },
+    { name: 'chromium', grepInvert: /@touch/ },
     { name: 'webkit', use: { ...devices['Desktop Safari'] }, grep: /@smoke/ },
     {
       name: 'mobile-chrome',
       use: { ...devices['Pixel 7'] },
-      grep: /@smoke|@accessibility/,
+      grep: /@smoke|@accessibility|@mobile/,
     },
     {
       name: 'mobile-safari',
       use: { ...devices['iPhone 14'] },
-      grep: /@smoke|@accessibility/,
+      grep: /@smoke|@accessibility|@mobile/,
     },
   ],
 });
