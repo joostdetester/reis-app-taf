@@ -74,7 +74,31 @@ jobs:
 
       - run: npm install
 
-      - run: npx playwright install --with-deps
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package.json').devDependencies['@playwright/test']")" >> "$GITHUB_OUTPUT"
+
+      # Browser binaries (~500MB+ across Chromium/WebKit/Firefox) otherwise
+      # get re-downloaded on every single run - keyed on the pinned
+      # @playwright/test version so a version bump naturally invalidates it.
+      - name: Cache Playwright browser binaries
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps
+
+      # The cached path above only holds the browser binaries, not the OS
+      # packages they need (apt libs) - those live on the runner's own
+      # filesystem, which is fresh every run regardless of cache-hit, so
+      # this still has to run every time, just without redownloading browsers.
+      - name: Install Playwright OS dependencies only (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps
 
       # BASE_URL / API_BASE_URL fall back to the demo defaults in
       # config/project.config.ts when unset. Set the real values per
@@ -131,7 +155,26 @@ jobs:
 
       - run: npm install
 
-      - run: npx playwright install --with-deps
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package.json').devDependencies['@playwright/test']")" >> "$GITHUB_OUTPUT"
+
+      # See the Accessibility job above for why this is split into a cache
+      # step plus two conditional install steps.
+      - name: Cache Playwright browser binaries
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps
+
+      - name: Install Playwright OS dependencies only (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps
 
       # Runs everything except @accessibility (that's the dedicated
       # Accessibility job above) and @external-api (the step below) — see
