@@ -1,0 +1,11 @@
+{
+  "reis-app": {
+    "version": "unknown"
+  },
+  "open-meteo": {
+    "version": "v1"
+  },
+  "getyourguide": {
+    "version": null
+  }
+}
