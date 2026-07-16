@@ -80,11 +80,25 @@ entirely, via the `mask` option on `toHaveScreenshot()`:
   - masked as whole cards, not just their changing text, because their
     *height* also varies with the live call's outcome (a multi-row forecast
     vs. a one-line error) - masking only the text inside would still leave
-    the page's overall layout unstable across runs. This is a known residual
-    risk for this one page: an unusually long weather-API outage that
-    changes the widget's height could still shift content below it. Accepted
-    as a rare, cheap-to-re-baseline edge case rather than engineering around
-    it (e.g. by scoping the screenshot to exclude both widgets entirely).
+    the page's overall layout unstable across runs. Confirmed live within a
+    day of adding this page's coverage: the baseline landed with the
+    forecast in one state and a later CI run hit the other, a real ~9% pixel
+    difference below the masked cards from everything reflowing. Accepted as
+    a rare, cheap-to-re-baseline edge case rather than engineering around it
+    (e.g. by scoping the screenshot to exclude both widgets entirely) - this
+    page's `toHaveScreenshot` call is given a wider `maxDiffPixelRatio`
+    (0.12, vs the project default of 0.02) specifically to absorb that
+    reflow without a full re-baseline every time it happens.
+
+Every scenario also calls a `waitForStableHeight()` helper
+(`steps/visual-regression.steps.ts`) on the whole page before screenshotting
+- confirmed on Today that a page can look "ready" (its main content visible)
+while a still-loading, ungated data hook (see above) grows it moments later.
+The helper polls `document.body`'s rendered height via `toPass()` until two
+consecutive reads agree (rounded, since sub-pixel float jitter between two
+reads of an unchanged layout would otherwise never converge) - not a hard
+wait, and generic enough to catch this class of bug on any page, not just
+the one it was diagnosed on.
 
 When adding a new visual scenario for a page with any live/time-dependent
 region, mask it the same way rather than hardcoding a wait that happens to
