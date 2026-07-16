@@ -16,6 +16,16 @@ const isDebug = !!process.env.PWDEBUG;
 export default defineConfig({
   testDir,
   timeout: 90_000,
+  // The today/practical-information weather assertions depend on a live
+  // third-party call (open-meteo.com) made straight from the browser. Widening
+  // the assertion timeout only helps when that call is slow - confirmed live
+  // that when the call fails outright (network blip, rate limit) the app
+  // renders no `.day-weather` element at all, so the assertion fails
+  // immediately with "element(s) not found" regardless of timeout. Retrying
+  // on CI reloads the page and re-issues the call, which resolves transient
+  // failures without masking a real regression (a genuine bug reproduces on
+  // the retry too).
+  retries: process.env.CI ? 2 : 0,
   use: {
     baseURL: process.env.BASE_URL ?? 'https://playwright.dev',
     headless: !isDebug,
