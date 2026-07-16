@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { expect, Locator } from '@playwright/test';
 import { Then } from './bdd';
 import { TodayPage } from '../pageobjects/today.page';
 import { TripOverviewPage } from '../pageobjects/trip-overview.page';
@@ -13,9 +13,37 @@ import { PracticalPage } from '../pageobjects/practical.page';
 // settling, not a network call.
 const SCREENSHOT_TIMEOUT = 15_000;
 
+// TodayPage only gates its own "Laden…" placeholder on useTripDays() - the
+// flight/hotel summary line inside each day-card comes from separate,
+// uncoordinated data hooks that can resolve a moment later, growing the
+// page's height after the cards are already visible. Confirmed live on CI:
+// a baseline taken right after dayCards.first() became visible didn't match
+// a later run where that line had finished rendering. Waits for the total
+// rendered height across all matched elements to stop changing between two
+// checks - not a hard wait, `toPass()` retries with its own backoff.
+async function waitForStableHeight(locator: Locator): Promise<void> {
+  let lastTotal: number | null = null;
+  await expect(async () => {
+    const heights = await locator.evaluateAll((els) =>
+      els.map((el) => el.getBoundingClientRect().height),
+    );
+    // Rounded - getBoundingClientRect returns sub-pixel floats that can
+    // differ by a fraction between two reads of an otherwise-unchanged
+    // layout, which would never converge if compared exactly.
+    const total = Math.round(heights.reduce((sum, h) => sum + h, 0));
+    // Record before asserting - expect() throws on mismatch, so recording
+    // after it would mean a failing comparison never updates lastTotal,
+    // comparing against the same (null, on the first attempt) value forever.
+    const previous = lastTotal;
+    lastTotal = total;
+    expect(total).toBe(previous);
+  }).toPass({ timeout: 10_000 });
+}
+
 Then('the today page matches its visual baseline', async ({ page, world }) => {
   const today = new TodayPage(page);
   await expect(today.dayCards.first()).toBeVisible();
+  await waitForStableHeight(today.dayCards);
   await expect(page).toHaveScreenshot('today-page.png', {
     fullPage: true,
     mask: [world.nav.worldClock, today.countdownPanel, today.allWeather],
