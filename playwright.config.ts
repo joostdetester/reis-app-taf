@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 import { defineBddConfig } from 'playwright-bdd';
 import dotenv from 'dotenv';
 
@@ -15,6 +15,9 @@ const isDebug = !!process.env.PWDEBUG;
 
 export default defineConfig({
   testDir,
+  // Fetches the deployed app's version.json and writes Allure's
+  // environment.properties before any test runs — see config/version-tracking.ts.
+  globalSetup: require.resolve('./global-setup'),
   timeout: 90_000,
   // The today/practical-information weather assertions depend on a live
   // third-party call (open-meteo.com) made straight from the browser. Widening
@@ -49,4 +52,39 @@ export default defineConfig({
     },
   },
   reporter: [['list'], ['allure-playwright']],
+  // Cross-browser + mobile-viewport coverage. `chromium` stays the
+  // full-suite default (unlisted `grep` matches everything); the other
+  // projects only run @smoke, plus @accessibility for the two mobile
+  // projects so the existing a11y scans - including WCAG's Target Size
+  // (tap-target) criterion - get exercised on a real mobile viewport, not
+  // just desktop. `webkit` covers desktop Safari's rendering engine.
+  //
+  // This works by intersection, not replacement: npm's test:e2e/test:a11y
+  // scripts pass --grep/--grep-invert @accessibility on the CLI, and
+  // Playwright ANDs that with each project's own `grep` below (confirmed in
+  // playwright/lib/runner/loadUtils.js - project-level grep filters first,
+  // then the CLI grep filters again on top). So webkit naturally runs zero
+  // accessibility tests (its @smoke set has no @accessibility overlap),
+  // while the mobile projects' (@smoke|@accessibility) set collapses to
+  // just @accessibility under test:a11y's CLI grep, and just @smoke under
+  // test:e2e's CLI grep-invert - no CI script changes needed.
+  projects: [
+    // No device preset here (unlike the projects below): 'Desktop Chrome'
+    // sets a fixed viewport, which would override the WINDOW_FULLSCREEN /
+    // WINDOW_POSITION+SIZE viewport:null branch above and break local headed
+    // debugging. Omitting `use` keeps this project identical to today's
+    // single-project setup (browserName defaults to chromium).
+    { name: 'chromium' },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] }, grep: /@smoke/ },
+    {
+      name: 'mobile-chrome',
+      use: { ...devices['Pixel 7'] },
+      grep: /@smoke|@accessibility/,
+    },
+    {
+      name: 'mobile-safari',
+      use: { ...devices['iPhone 14'] },
+      grep: /@smoke|@accessibility/,
+    },
+  ],
 });
