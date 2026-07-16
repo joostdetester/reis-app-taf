@@ -50,8 +50,12 @@ export const test = base.extend<BddFixtures & { _allureMeta: void }>({
       // most browser folders contain just one or two entries.
       await safeAllure(() => allure.suite(projectDisplayName(testInfo.project.name)));
 
+      // Skipped when it would just repeat the parentSuite - accessibility.feature
+      // is the only feature file carrying @accessibility, so its subSuite name
+      // ("accessibility") always matches parentSuite ("Accessibility") and adds
+      // a redundant extra folder with nothing else in it.
       const suiteName = suiteNameFromFile(testInfo.file);
-      if (suiteName) {
+      if (suiteName && suiteName.toLowerCase() !== parentSuite.toLowerCase()) {
         await safeAllure(() => allure.subSuite(suiteName));
       }
 
