@@ -41,6 +41,13 @@ Given('the user opens the app with a valid edit token', async ({ page, config, w
   await expect(new TodayPage(page).dayCards.first()).toBeVisible();
 });
 
+Given('the user opens the app with an invalid edit token', async ({ page, config, world }) => {
+  const nav = new NavigationPage(page);
+  await nav.openWithToken(config.invalidEditUrl);
+  world.nav = nav;
+  await expect(new TodayPage(page).dayCards.first()).toBeVisible();
+});
+
 Then('a logout button is shown', async ({ page }) => {
   await expect(new TodayPage(page).logoutButton).toContainText('Uitloggen');
 });
