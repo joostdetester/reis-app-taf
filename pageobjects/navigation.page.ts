@@ -11,13 +11,17 @@ const ROUTE_PATHS: Record<MainRoute, string> = {
   practical: '/#/practical',
 };
 
-const NAV_LINK_NAMES: Record<MainRoute, RegExp> = {
-  today: /Vandaag/,
-  trip: /Reis/,
-  hotels: /Hotels/,
-  flights: /Vluchten/,
-  photos: /Foto's/,
-  practical: /Praktisch/,
+// `today`/`trip`/`hotels`/`flights` live in the fixed bottom nav (data-testid
+// `bottom-nav-<route>`, where the app's own route segment for `flights` is
+// `transport`); `photos`/`practical` are header-menu-only links instead
+// (data-testid `menu-<route>`) - confirmed live, neither is in the bottom nav.
+const NAV_TESTID: Record<MainRoute, string> = {
+  today: 'bottom-nav-today',
+  trip: 'bottom-nav-trip',
+  hotels: 'bottom-nav-hotels',
+  flights: 'bottom-nav-transport',
+  photos: 'menu-photos',
+  practical: 'menu-practical',
 };
 
 export class NavigationPage {
@@ -28,7 +32,7 @@ export class NavigationPage {
   }
 
   async goTo(route: MainRoute): Promise<void> {
-    await this.page.getByRole('link', { name: NAV_LINK_NAMES[route] }).click();
+    await this.page.getByTestId(NAV_TESTID[route]).click();
   }
 
   async visitRoute(route: MainRoute): Promise<void> {
@@ -46,27 +50,31 @@ export class NavigationPage {
     await this.page.waitForURL((url) => !url.search.includes('token'));
   }
 
+  // `article[data-testid^="day-card-"]` (not just an attribute selector) so
+  // this only matches the card root, not the inner elements that share the
+  // same `day-card-<id>-...` testid prefix (head/location/date/badge/etc,
+  // all non-`article` tags) - confirmed live.
   get todayCard(): Locator {
-    return this.page.locator('.day-card').first();
+    return this.page.locator('article[data-testid^="day-card-"]').first();
   }
 
   get tripToolbar(): Locator {
-    return this.page.locator('.toolbar');
+    return this.page.getByTestId('trip-view-toolbar');
   }
 
   get hotelsHeading(): Locator {
-    return this.page.getByText('Overnachtingen');
+    return this.page.getByRole('heading', { name: 'Overnachtingen' });
   }
 
   get flightsHeading(): Locator {
-    return this.page.getByText('Vluchten', { exact: true }).first();
+    return this.page.getByRole('heading', { name: 'Vluchten', exact: true });
   }
 
   get photosHeading(): Locator {
-    return this.page.getByText("Foto's", { exact: true }).first();
+    return this.page.getByRole('heading', { name: "Foto's", exact: true });
   }
 
   get practicalHeading(): Locator {
-    return this.page.getByText('Praktische informatie');
+    return this.page.getByRole('heading', { name: 'Praktische informatie' });
   }
 }

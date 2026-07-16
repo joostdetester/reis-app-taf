@@ -3,28 +3,28 @@ import { DayCardComponent } from './day-card.page';
 
 export type TripView = 'timeline' | 'destinations' | 'calendar';
 
-// Dutch labels used by the in-page view-switcher chips (.toolbar .chip),
-// confirmed live - distinct from the emoji-prefixed links in the page
-// header, which navigate to the same views but aren't the "view switcher
-// component" itself.
-const VIEW_LABELS: Record<TripView, string> = {
-  timeline: 'Tijdlijn',
-  destinations: 'Bestemmingen',
-  calendar: 'Kalender',
+// The view-switcher chips carry their own data-testid (`trip-view-<view>`) -
+// distinct from the emoji-prefixed links in the page header, which navigate
+// to the same views but aren't the "view switcher component" itself.
+const VIEW_TESTID: Record<TripView, string> = {
+  timeline: 'trip-view-timeline',
+  destinations: 'trip-view-destinations',
+  calendar: 'trip-view-calendar',
 };
 
 // The Trip overview page (#/trip), covering all three views: timeline
-// (default, one .day-card per day), destinations (.list-card groups) and
-// calendar (a compact .calendar-grid of date -> destination links).
+// (default, one day-card per day), destinations (destination-block groups)
+// and calendar (a compact grid of date -> destination links, one per
+// calendar-day-<date> entry).
 export class TripOverviewPage {
   constructor(private readonly page: Page) {}
 
   get toolbar(): Locator {
-    return this.page.locator('.toolbar');
+    return this.page.getByTestId('trip-view-toolbar');
   }
 
   viewChip(view: TripView): Locator {
-    return this.toolbar.getByRole('button', { name: VIEW_LABELS[view], exact: true });
+    return this.page.getByTestId(VIEW_TESTID[view]);
   }
 
   async switchTo(view: TripView): Promise<void> {
@@ -32,7 +32,7 @@ export class TripOverviewPage {
   }
 
   get searchInput(): Locator {
-    return this.page.locator('input.search');
+    return this.page.getByTestId('trip-search');
   }
 
   async searchFor(term: string): Promise<void> {
@@ -41,7 +41,7 @@ export class TripOverviewPage {
 
   // Timeline view
   get dayCards(): Locator {
-    return this.page.locator('main .day-card');
+    return this.page.getByTestId('page-trip').locator('article[data-testid^="day-card-"]');
   }
 
   dayCard(index: number): DayCardComponent {
@@ -49,16 +49,16 @@ export class TripOverviewPage {
   }
 
   get dayDates(): Locator {
-    return this.dayCards.locator('.day-date');
+    return this.dayCards.locator('[data-testid$="-date"]');
   }
 
   // Destinations view
   get destinationGroups(): Locator {
-    return this.page.locator('.list-card');
+    return this.page.locator('[data-testid^="destination-block-"]');
   }
 
   destinationHeading(index: number): Locator {
-    return this.destinationGroups.nth(index).locator('h3');
+    return this.destinationGroups.nth(index).getByRole('heading', { level: 3 });
   }
 
   destinationActivitiesLink(index: number): Locator {
@@ -67,6 +67,6 @@ export class TripOverviewPage {
 
   // Calendar view
   get calendarEntries(): Locator {
-    return this.page.locator('.calendar-grid a');
+    return this.page.locator('[data-testid^="calendar-day-"]');
   }
 }
