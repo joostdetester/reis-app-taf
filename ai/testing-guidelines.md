@@ -63,6 +63,10 @@ tag is routed.
   the whole job the way it has before - tag a scenario with this the moment
   it starts asserting on a live external value rather than the app's own
   data, not just because it happens to touch a page that has one.
+- `@visual` — full-page screenshot comparison; only runs on `chromium` and
+  `mobile-safari`, and only in its own dedicated `visual` CI job (excluded
+  from the E2E job). See `ai/visual-regression-testing.md` — in particular
+  for the Windows/Linux baseline mismatch and how to update baselines.
 
 ## Test Data
 - Use factories or fixtures

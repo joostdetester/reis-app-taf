@@ -1,0 +1,76 @@
+name: Update Visual Baselines
+
+# Manually triggered only - generates visual-regression baselines on the same
+# OS as CI (ubuntu-latest), since Playwright's screenshots are OS-font-
+# rendering-dependent and a baseline generated on a developer's Windows/Mac
+# machine will never match what CI compares against. See
+# ai/visual-regression-testing.md.
+#
+# Deliberately does NOT commit the result automatically - uploads it as a
+# downloadable artifact instead, so a human reviews the actual images before
+# accepting them as the new baseline (that review is the whole point of
+# visual regression testing; auto-committing would skip it).
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch to generate baselines from'
+        required: true
+        default: 'acceptance'
+
+jobs:
+  update-baselines:
+    name: Update Visual Baselines
+    runs-on: ubuntu-latest
+    environment: "${{ inputs.ref == 'acceptance' && 'acceptance' || 'test' }}"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+
+      - run: npm install
+
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package.json').devDependencies['@playwright/test']")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browser binaries
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps
+
+      - name: Install Playwright OS dependencies only (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps
+
+      # Not `if: always()` - if generation itself errors out (e.g. the live
+      # app is unreachable), there's nothing valid to upload.
+      - run: npm run test:visual:update
+        env:
+          BASE_URL: ${{ secrets.BASE_URL }}
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+
+      - name: Upload generated baselines for review
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-snapshots-${{ inputs.ref }}
+          path: visual-snapshots/
+          if-no-files-found: error
+
+      - name: Instructions
+        run: |
+          {
+            echo "## Visual baselines generated"
+            echo "Download the \`visual-snapshots-${{ inputs.ref }}\` artifact above, review the images,"
+            echo "then replace your local \`visual-snapshots/\` with them and commit if the changes are intentional."
+          } >> "$GITHUB_STEP_SUMMARY"

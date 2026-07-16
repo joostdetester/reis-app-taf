@@ -10,6 +10,19 @@ export class PracticalPage {
     return this.page.getByRole('heading', { name: 'Praktische informatie' });
   }
 
+  // The whole live weather widget, for masking in visual snapshots - its
+  // height varies with the live call's outcome (forecast rows vs a one-line
+  // error), which a baseline can't meaningfully pin down anyway.
+  get weatherForecastCard(): Locator {
+    return this.page.getByTestId('weather-forecast');
+  }
+
+  // Same reasoning as weatherForecastCard - the live rate/date line changes
+  // by definition.
+  get currencyConverterCard(): Locator {
+    return this.page.getByTestId('currency-converter');
+  }
+
   get citySelect(): Locator {
     return this.page.getByTestId('weather-forecast-destination');
   }

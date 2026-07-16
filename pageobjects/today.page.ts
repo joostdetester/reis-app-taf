@@ -15,6 +15,13 @@ export class TodayPage {
     return new DayCardComponent(this.dayCards.nth(index));
   }
 
+  // Every day-card's weather+beach-score element at once (there can be more
+  // than one card - today and tomorrow) - `getByTestId` on the unscoped page
+  // matches all of them, not just the first.
+  get allWeather(): Locator {
+    return this.page.getByTestId('day-weather');
+  }
+
   get countdownPanel(): Locator {
     return this.page.getByTestId('countdown');
   }

@@ -29,6 +29,21 @@ export default defineConfig({
   // failures without masking a real regression (a genuine bug reproduces on
   // the retry too).
   retries: process.env.CI ? 2 : 0,
+  // playwright-bdd generates spec files into a gitignored, regenerated-every-
+  // run directory (see `testDir` above), so the *default* snapshot location
+  // (next to the test file) would never get committed. Snapshots live at the
+  // project root instead, keyed by project + OS (`{platform}`) - screenshots
+  // are OS-font-rendering-dependent, so a baseline generated on Windows will
+  // never match CI's ubuntu-latest. See ai/visual-regression-testing.md for
+  // how to generate/update baselines against the same OS as CI.
+  snapshotPathTemplate: 'visual-snapshots/{projectName}/{platform}/{arg}{ext}',
+  expect: {
+    toHaveScreenshot: {
+      // Small cushion against anti-aliasing jitter between otherwise-identical
+      // renders on the same OS/browser - not meant to absorb real UI changes.
+      maxDiffPixelRatio: 0.02,
+    },
+  },
   use: {
     baseURL: process.env.BASE_URL ?? 'https://playwright.dev',
     headless: !isDebug,
@@ -92,7 +107,10 @@ export default defineConfig({
     {
       name: 'mobile-safari',
       use: { ...devices['iPhone 14'] },
-      grep: /@smoke|@accessibility|@mobile/,
+      // @visual only runs here and on chromium (not mobile-chrome/webkit) -
+      // see ai/visual-regression-testing.md for why this browser/viewport was
+      // picked over the other mobile project.
+      grep: /@smoke|@accessibility|@mobile|@visual/,
     },
   ],
 });

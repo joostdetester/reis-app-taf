@@ -19,6 +19,22 @@ export class FlightsPage {
     return this.flightCards.nth(index);
   }
 
+  // Every flight's gate/terminal at once (not scoped to one card) - these
+  // switch from a "not yet available" placeholder to a real value as
+  // departure approaches (see the flights.feature scenario for that logic),
+  // so a visual baseline treats them as inherently time-dependent content.
+  get allGates(): Locator {
+    return this.page.locator(
+      '[data-testid^="field-transport_items-departure_gate-"][data-testid$="-value"]',
+    );
+  }
+
+  get allArrivalTerminals(): Locator {
+    return this.page.locator(
+      '[data-testid^="field-transport_items-arrival_terminal-"][data-testid$="-value"]',
+    );
+  }
+
   flightNumber(index: number): Locator {
     return this.flightCard(index).locator(
       '[data-testid^="field-transport_items-booking_reference-"][data-testid$="-value"]',

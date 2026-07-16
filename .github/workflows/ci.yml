@@ -209,11 +209,64 @@ jobs:
           path: allure-results/
           if-no-files-found: warn
 
-  # Combines both jobs' raw Allure results into one report and publishes it
-  # to GitHub Pages — a single meta overview (pass/fail per suite/tag) with
-  # drill-down into every individual test, native to Allure. Runs even if
-  # accessibility/playwright failed (`if: always()`), so a failing run still
-  # gets a report showing what happened.
+  # Unlike @external-api, a @visual failure is a genuine gate (it means the
+  # UI changed, on purpose or not) rather than noise from something outside
+  # this repo's control - so this job does NOT continue-on-error, and a
+  # failure here fails CI. See ai/visual-regression-testing.md for the tag,
+  # the Windows/Linux baseline mismatch, and how to update baselines.
+  visual:
+    name: Visual Regression
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck]
+    environment: "${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'acceptance' && 'acceptance' || 'test' }}"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+
+      - run: npm install
+
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package.json').devDependencies['@playwright/test']")" >> "$GITHUB_OUTPUT"
+
+      # See the Accessibility job for why this is split into a cache step
+      # plus two conditional install steps.
+      - name: Cache Playwright browser binaries
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps
+
+      - name: Install Playwright OS dependencies only (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps
+
+      - run: npm run test:visual
+        env:
+          BASE_URL: ${{ secrets.BASE_URL }}
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: allure-results-visual
+          path: allure-results/
+          if-no-files-found: warn
+
+  # Combines all three jobs' raw Allure results into one report and publishes
+  # it to GitHub Pages — a single meta overview (pass/fail per suite/tag)
+  # with drill-down into every individual test, native to Allure. Runs even
+  # if accessibility/playwright/visual failed (`if: always()`), so a failing
+  # run still gets a report showing what happened.
   #
   # NOTE: the published report is publicly reachable at the repo's Pages
   # URL, even though this repo is private — GitHub Pages has no "private"
@@ -225,7 +278,7 @@ jobs:
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [accessibility, playwright]
+    needs: [accessibility, playwright, visual]
     if: always()
     permissions:
       contents: read
@@ -263,6 +316,13 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: allure-results-accessibility
+          path: allure-results
+
+      - name: Download Visual Regression Allure results
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: allure-results-visual
           path: allure-results
 
       - name: Download accessibility HTML report

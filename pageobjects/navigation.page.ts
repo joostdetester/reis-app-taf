@@ -90,6 +90,12 @@ export class NavigationPage {
     return this.page.getByTestId('bottom-nav');
   }
 
+  // Part of the shared Hero header (rendered outside <Routes>, so on every
+  // page, not just Today) - live local time, changes every second.
+  get worldClock(): Locator {
+    return this.page.getByTestId('world-clock');
+  }
+
   // The last rendered block inside <main> - used to check it isn't hidden
   // behind the fixed-position bottom nav once scrolled into view.
   get lastMainContent(): Locator {
