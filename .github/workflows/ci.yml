@@ -134,12 +134,29 @@ jobs:
       - run: npx playwright install --with-deps
 
       # Runs everything except @accessibility (that's the dedicated
-      # Accessibility job above) — see ai/testing-guidelines.md.
+      # Accessibility job above) and @external-api (the step below) — see
+      # ai/testing-guidelines.md.
       - run: npm run test:e2e
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
           API_BASE_URL: ${{ secrets.API_BASE_URL }}
           EDIT_TOKEN: ${{ secrets.EDIT_TOKEN }}
+
+      # @external-api scenarios call a live third-party API directly
+      # (open-meteo weather, the Frankfurter exchange-rate API) with no
+      # control over its uptime - several of these have already needed a
+      # follow-up fix after failing outright on CI (see git history for
+      # today.feature/practical-information.feature). continue-on-error so
+      # an outage there no longer fails the whole E2E job; `if: always()` so
+      # this still runs (and still contributes to the Allure report) even if
+      # the step above failed on something unrelated.
+      - name: Run external-API-dependent E2E tests (best effort)
+        if: always()
+        continue-on-error: true
+        run: npm run test:e2e:external-api
+        env:
+          BASE_URL: ${{ secrets.BASE_URL }}
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
 
       - name: Upload Allure results
         if: always()

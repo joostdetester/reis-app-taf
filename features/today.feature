@@ -5,11 +5,15 @@ Feature: Today page
   I want today's day card to summarize the day at a glance
   So that I can quickly see where we are, what the weather is like and what's planned
 
-  Scenario: The day card shows destination, date, weather and beach score for today
+  Scenario: The day card shows destination and date for today
     Given the user opens the today page
     Then the day card for today shows the destination
     And the day card for today shows the date
-    And the day card for today shows a weather forecast
+
+  @external-api
+  Scenario: The day card shows a weather forecast and beach score for today
+    Given the user opens the today page
+    Then the day card for today shows a weather forecast
     And the day card for today shows a beach score
 
   Scenario: The day card summarizes that day's flight and hotel
