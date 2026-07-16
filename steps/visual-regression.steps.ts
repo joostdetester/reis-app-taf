@@ -5,12 +5,21 @@ import { TripOverviewPage } from '../pageobjects/trip-overview.page';
 import { FlightsPage } from '../pageobjects/flights.page';
 import { PracticalPage } from '../pageobjects/practical.page';
 
+// toHaveScreenshot() takes repeated shots until two consecutive ones match
+// (or this timeout elapses) - confirmed live that the default 5s can run out
+// before that happens, failing even a first-time baseline generation with no
+// real visual issue involved. Generous but not the same 20s used elsewhere
+// for genuinely slow live-API content, since this is just render/layout
+// settling, not a network call.
+const SCREENSHOT_TIMEOUT = 15_000;
+
 Then('the today page matches its visual baseline', async ({ page, world }) => {
   const today = new TodayPage(page);
   await expect(today.dayCards.first()).toBeVisible();
   await expect(page).toHaveScreenshot('today-page.png', {
     fullPage: true,
     mask: [world.nav.worldClock, today.countdownPanel, today.allWeather],
+    timeout: SCREENSHOT_TIMEOUT,
   });
 });
 
@@ -20,6 +29,7 @@ Then('the trip overview page matches its visual baseline', async ({ page, world 
   await expect(page).toHaveScreenshot('trip-overview-destinations.png', {
     fullPage: true,
     mask: [world.nav.worldClock],
+    timeout: SCREENSHOT_TIMEOUT,
   });
 });
 
@@ -28,6 +38,7 @@ Then('the hotels page matches its visual baseline', async ({ page, world }) => {
   await expect(page).toHaveScreenshot('hotels-page.png', {
     fullPage: true,
     mask: [world.nav.worldClock],
+    timeout: SCREENSHOT_TIMEOUT,
   });
 });
 
@@ -37,6 +48,7 @@ Then('the flights page matches its visual baseline', async ({ page, world }) => 
   await expect(page).toHaveScreenshot('flights-page.png', {
     fullPage: true,
     mask: [world.nav.worldClock, flights.allGates, flights.allArrivalTerminals],
+    timeout: SCREENSHOT_TIMEOUT,
   });
 });
 
@@ -48,5 +60,6 @@ Then('the practical information page matches its visual baseline', async ({ page
   await expect(page).toHaveScreenshot('practical-information-page.png', {
     fullPage: true,
     mask: [world.nav.worldClock, practical.weatherForecastCard, practical.currencyConverterCard],
+    timeout: SCREENSHOT_TIMEOUT,
   });
 });
