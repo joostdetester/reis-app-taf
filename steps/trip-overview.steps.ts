@@ -64,6 +64,10 @@ Then(
   'each destination shows a "Top activities on GetYourGuide" link for that destination',
   async ({ page }) => {
     const trip = new TripOverviewPage(page);
+    // The destination groups render asynchronously after the view-switch
+    // click - wait for the first one rather than counting immediately,
+    // same guard the sibling "grouped per destination" step already uses.
+    await expect(trip.destinationGroups.first()).toBeVisible();
     const count = await trip.destinationGroups.count();
     expect(count).toBeGreaterThan(0);
     for (let i = 0; i < count; i++) {

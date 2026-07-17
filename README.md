@@ -30,6 +30,27 @@ npm run allure:generate
 npm run allure:open
 ```
 
+### What version was tested?
+
+A `globalSetup` (`global-setup.ts` → `config/version-tracking.ts`) runs before
+every test and fetches `{BASE_URL}/version.json` — a file the reis-app repo
+generates at build time containing its `package.json` version and git commit
+(see that repo's README). Combined with the versions of tracked third-party
+integrations (`config/tracked-third-party-versions.ts` — currently the
+Open-Meteo weather API; GetYourGuide is an outbound link only, so it has no
+version), this is written to `allure-results/environment.properties`, which
+Allure shows in the report's **Environment** widget on the overview page.
+
+Each run compares the fetched versions against `config/last-known-versions.json`
+(committed to this repo). When a version differs from last time, the report
+also gets a `*.version.changed=<old> -> <new>` line and the console prints a
+warning. **After a run reports a change, commit the updated
+`config/last-known-versions.json`** so the next run compares against it.
+
+If `version.json` can't be reached (e.g. not deployed yet, or a network
+blip), the report shows `unknown` for that run instead of failing the suite —
+this is reporting metadata, not a test assertion.
+
 ## Linting, formatting, cleanup
 
 ```

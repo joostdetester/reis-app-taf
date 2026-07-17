@@ -11,13 +11,17 @@ const ROUTE_PATHS: Record<MainRoute, string> = {
   practical: '/#/practical',
 };
 
-const NAV_LINK_NAMES: Record<MainRoute, RegExp> = {
-  today: /Vandaag/,
-  trip: /Reis/,
-  hotels: /Hotels/,
-  flights: /Vluchten/,
-  photos: /Foto's/,
-  practical: /Praktisch/,
+// `today`/`trip`/`hotels`/`flights` live in the fixed bottom nav (data-testid
+// `bottom-nav-<route>`, where the app's own route segment for `flights` is
+// `transport`); `photos`/`practical` are header-menu-only links instead
+// (data-testid `menu-<route>`) - confirmed live, neither is in the bottom nav.
+const NAV_TESTID: Record<MainRoute, string> = {
+  today: 'bottom-nav-today',
+  trip: 'bottom-nav-trip',
+  hotels: 'bottom-nav-hotels',
+  flights: 'bottom-nav-transport',
+  photos: 'menu-photos',
+  practical: 'menu-practical',
 };
 
 export class NavigationPage {
@@ -28,7 +32,31 @@ export class NavigationPage {
   }
 
   async goTo(route: MainRoute): Promise<void> {
-    await this.page.getByRole('link', { name: NAV_LINK_NAMES[route] }).click();
+    await this.page.getByTestId(NAV_TESTID[route]).click();
+  }
+
+  // Real touch tap rather than click() - only meaningful (and only allowed
+  // by Playwright) on a context with hasTouch enabled, i.e. the mobile
+  // projects, since desktop Chrome/Safari device presets set hasTouch:false.
+  async tapTo(route: MainRoute): Promise<void> {
+    await this.page.getByTestId(NAV_TESTID[route]).tap();
+  }
+
+  headingFor(route: MainRoute): Locator {
+    switch (route) {
+      case 'today':
+        return this.todayCard;
+      case 'trip':
+        return this.tripToolbar;
+      case 'hotels':
+        return this.hotelsHeading;
+      case 'flights':
+        return this.flightsHeading;
+      case 'photos':
+        return this.photosHeading;
+      case 'practical':
+        return this.practicalHeading;
+    }
   }
 
   async visitRoute(route: MainRoute): Promise<void> {
@@ -46,27 +74,47 @@ export class NavigationPage {
     await this.page.waitForURL((url) => !url.search.includes('token'));
   }
 
+  // `article[data-testid^="day-card-"]` (not just an attribute selector) so
+  // this only matches the card root, not the inner elements that share the
+  // same `day-card-<id>-...` testid prefix (head/location/date/badge/etc,
+  // all non-`article` tags) - confirmed live.
   get todayCard(): Locator {
-    return this.page.locator('.day-card').first();
+    return this.page.locator('article[data-testid^="day-card-"]').first();
   }
 
   get tripToolbar(): Locator {
-    return this.page.locator('.toolbar');
+    return this.page.getByTestId('trip-view-toolbar');
+  }
+
+  get bottomNav(): Locator {
+    return this.page.getByTestId('bottom-nav');
+  }
+
+  // Part of the shared Hero header (rendered outside <Routes>, so on every
+  // page, not just Today) - live local time, changes every second.
+  get worldClock(): Locator {
+    return this.page.getByTestId('world-clock');
+  }
+
+  // The last rendered block inside <main> - used to check it isn't hidden
+  // behind the fixed-position bottom nav once scrolled into view.
+  get lastMainContent(): Locator {
+    return this.page.locator('main > *').last();
   }
 
   get hotelsHeading(): Locator {
-    return this.page.getByText('Overnachtingen');
+    return this.page.getByRole('heading', { name: 'Overnachtingen' });
   }
 
   get flightsHeading(): Locator {
-    return this.page.getByText('Vluchten', { exact: true }).first();
+    return this.page.getByRole('heading', { name: 'Vluchten', exact: true });
   }
 
   get photosHeading(): Locator {
-    return this.page.getByText("Foto's", { exact: true }).first();
+    return this.page.getByRole('heading', { name: "Foto's", exact: true });
   }
 
   get practicalHeading(): Locator {
-    return this.page.getByText('Praktische informatie');
+    return this.page.getByRole('heading', { name: 'Praktische informatie' });
   }
 }

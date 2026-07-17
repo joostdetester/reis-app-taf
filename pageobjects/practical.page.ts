@@ -7,11 +7,24 @@ export class PracticalPage {
   constructor(private readonly page: Page) {}
 
   get heading(): Locator {
-    return this.page.getByText('Praktische informatie');
+    return this.page.getByRole('heading', { name: 'Praktische informatie' });
+  }
+
+  // The whole live weather widget, for masking in visual snapshots - its
+  // height varies with the live call's outcome (forecast rows vs a one-line
+  // error), which a baseline can't meaningfully pin down anyway.
+  get weatherForecastCard(): Locator {
+    return this.page.getByTestId('weather-forecast');
+  }
+
+  // Same reasoning as weatherForecastCard - the live rate/date line changes
+  // by definition.
+  get currencyConverterCard(): Locator {
+    return this.page.getByTestId('currency-converter');
   }
 
   get citySelect(): Locator {
-    return this.page.locator('.select-pill');
+    return this.page.getByTestId('weather-forecast-destination');
   }
 
   get cityOptions(): Locator {
@@ -38,32 +51,32 @@ export class PracticalPage {
   }
 
   get forecastDays(): Locator {
-    return this.page.locator('.list-card').first().locator('div[style*="text-align: center"]');
-  }
-
-  private get converterCard(): Locator {
-    return this.page.locator('.list-card', { hasText: 'Peso ↔ Euro' });
+    return this.page.locator('[data-testid^="weather-forecast-day-"]');
   }
 
   get pesoInput(): Locator {
-    return this.converterCard.locator('.row', { hasText: 'Peso' }).locator('input');
+    return this.page.getByTestId('currency-converter-php');
   }
 
   get euroInput(): Locator {
-    return this.converterCard.locator('.row', { hasText: 'Euro' }).locator('input');
+    return this.page.getByTestId('currency-converter-eur');
   }
 
   get exchangeRateText(): Locator {
-    return this.converterCard.locator('p.muted');
+    return this.page.getByTestId('currency-converter-rate');
   }
 
+  // Practical-info blocks (Nood/Geld/Vervoer/Bereikbaarheid) are seeded
+  // content, keyed by DB id rather than a fixed slug the tests can rely on -
+  // the heading text is the only stable handle here, so this deliberately
+  // stays a content lookup rather than a testid lookup.
   infoBlock(heading: string): Locator {
-    return this.page
-      .locator('.list-card')
-      .filter({ has: this.page.locator('h3', { hasText: heading }) });
+    return this.page.getByTestId('page-practical').locator('.list-card', {
+      has: this.page.getByRole('heading', { level: 3, name: heading }),
+    });
   }
 
   infoBlockBody(heading: string): Locator {
-    return this.infoBlock(heading).locator('.value');
+    return this.infoBlock(heading).locator('[data-testid$="-value"]');
   }
 }
