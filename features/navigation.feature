@@ -5,6 +5,7 @@ Feature: Main navigation
   I want to move between the main sections
   So that I can find trip information quickly
 
+  @critical
   Scenario: The bottom navigation opens every main section
     Given the user opens the today page
     When the user navigates to the trip overview
@@ -16,6 +17,7 @@ Feature: Main navigation
     When the user navigates back to the today page
     Then the today page is visible
 
+  @risk-high
   Scenario: The extra menu opens photos and practical information
     Given the user opens the today page
     When the user opens the photos page from the extra menu
@@ -23,7 +25,7 @@ Feature: Main navigation
     When the user opens the practical information page from the extra menu
     Then the practical information page is visible
 
-  @e2e
+  @e2e @risk-high
   Scenario: Visiting every main page produces no console errors
     Given the user opens the today page
     When the user visits every main page in sequence
