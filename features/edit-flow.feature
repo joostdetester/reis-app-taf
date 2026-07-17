@@ -16,6 +16,11 @@ Feature: Edit flow
     And an edit button is shown for each part of the day
     And an edit button is shown for the note
 
+  Scenario: An invalid edit token keeps the app read-only
+    Given the user opens the app with an invalid edit token
+    Then a read-only badge is shown
+    And no edit buttons are shown
+
   Scenario Outline: Clicking edit opens the matching inline form for the <part> part of the day
     Given the user opens the app with a valid edit token
     When the user clicks the edit button for the <part> part of the day

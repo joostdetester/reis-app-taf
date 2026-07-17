@@ -5,4 +5,10 @@ export const projectConfig = {
   get editUrl() {
     return `${this.baseUrl}/?token=${this.editToken}`;
   },
+  // Deliberately never a real token: verifies that the app treats a wrong/guessed
+  // token as read-only instead of trusting its mere presence (see
+  // verify-edit-token in reis-app).
+  get invalidEditUrl() {
+    return `${this.baseUrl}/?token=clearly-invalid-test-token`;
+  },
 };

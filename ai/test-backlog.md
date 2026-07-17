@@ -81,7 +81,7 @@ Bron: live-verkenning van `BASE_URL=https://reis-bf84496b20.vercel.app` op 2026-
 - 📝 Klik op "Bewerk" opent het juiste inline formulier ("<Dagdeel> bewerken")
 - 📝 "Annuleren" sluit het formulier zonder wijziging door te voeren
 - 🚫 "Opslaan" persisteert de wijziging correct — geblokkeerd: vereist een los test-/staging-endpoint zodat schrijftests niet de echte gezinsreisdata overschrijven (nog te realiseren in `reis-app`)
-- 🚫 Ongeldige token wordt geweigerd (blijft read-only) — geblokkeerd: zie [[reis-app-taf-known-issues]], de app accepteert momenteel elke token-waarde; dit gedrag eerst laten fixen in `reis-app` voordat dit als verwacht gedrag wordt vastgelegd
+- ✅ Ongeldige token wordt geweigerd (blijft read-only) — `reis-app` valideert de token nu server-side (nieuwe `verify-edit-token` Edge Function) voordat de UI Bewerk-knoppen toont, i.p.v. alleen te checken of er een token aanwezig is; scenario "An invalid edit token keeps the app read-only" toegevoegd aan `features/edit-flow.feature`. Schrijven zelf was al veilig (`save-edit` valideerde de token-hash al) — zie `reis-app`'s `SECURITY.md`.
 
 ## Security (`@security`)
 
