@@ -141,6 +141,18 @@ jobs:
           path: a11y-report/
           if-no-files-found: warn
 
+      # Raw per-scan records (see pageobjects/_shared/accessibility.ts) - the
+      # release-readiness job needs these directly, not just the built HTML
+      # report, to show each WCAG level's actual severity-count breakdown
+      # against its threshold (scripts/check-release-readiness.mjs).
+      - name: Upload accessibility scan data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: a11y-report-data
+          path: a11y-report-data/
+          if-no-files-found: warn
+
   playwright:
     name: E2E
     runs-on: ubuntu-latest
@@ -378,6 +390,16 @@ jobs:
         with:
           name: allure-results-security
           path: allure-results
+
+      # Raw per-scan records, not just pass/fail - see
+      # scripts/check-release-readiness.mjs for why (per-WCAG-level
+      # severity-count breakdown against its own threshold).
+      - name: Download accessibility scan data
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: a11y-report-data
+          path: a11y-report-data
 
       # Exit code from this step is the gate itself - a non-zero exit (not
       # every suite at 100% pass) fails this job.

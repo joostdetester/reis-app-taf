@@ -11,11 +11,13 @@ Feature: Practical information
     When the user selects a different city in the weather selector
     Then the 14-day weather forecast for that city is shown
 
+  @risk-high
   Scenario: Entering an amount in Peso recalculates the Euro amount
     Given the user opens the practical information page
     When the user enters an amount in the Peso field
     Then the Euro field shows the correctly converted amount
 
+  @risk-high
   Scenario: Entering an amount in Euro recalculates the Peso amount
     Given the user opens the practical information page
     When the user enters an amount in the Euro field
@@ -26,6 +28,7 @@ Feature: Practical information
     Given the user opens the practical information page
     Then the exchange rate date shown next to the converter matches today's date
 
+  @risk-low
   Scenario: The static info blocks show the expected practical content
     Given the user opens the practical information page
     Then the emergency information block is shown
