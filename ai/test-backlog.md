@@ -93,7 +93,7 @@ Zie `ai/security-testing.md` voor scope en OWASP-mapping.
 - 🚫 App-response zet Content-Security-Policy / X-Frame-Options / X-Content-Type-Options — geblokkeerd: ontbreken momenteel echt (bevestigd live), fix hoort in `reis-app` (bv. `vercel.json` headers-config); scenario breidt uit zodra dat er is
 - 📝 `npm audit` / `npm outdated` op beide repo's (handmatig, fase 3)
 - 📝 OWASP ZAP baseline-scan tegen test-/acceptance-omgeving (handmatig, fase 3, nooit tegen productie)
-- 📝 `security`-job in CI (`npm audit --audit-level=high`) (fase 4)
+- ✅ `security`-job in CI (`npm run test:security` + `npm audit --audit-level=high`), eigen Allure-suite naast E2E/Accessibility/Visual Regression
 
 ## Buiten scope (voorlopig)
 

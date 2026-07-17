@@ -27,7 +27,7 @@ rather than silently skipped.
 | A03 Injection | Medium | `@security` — XSS smoke test on the trip search field (`features/security.feature`). |
 | A04 Insecure Design | Low | N/A — small single-tenant app with no bespoke auth architecture. |
 | A05 Security Misconfiguration | Medium | `@security` — response-headers check. Currently only asserts HSTS (the only one present); see Known gaps below. |
-| A06 Vulnerable & Outdated Components | High | Phase 3/4 (not yet built): `npm audit` locally and in CI. |
+| A06 Vulnerable & Outdated Components | High | `npm audit --audit-level=high` in the `security` CI job, plus manual `npm audit`/`npm outdated` on both repos (phase 3, periodic). |
 | A07 Identification & Auth Failures | Low | No user accounts, only a link token — overlaps with A01. |
 | A08 Software & Data Integrity Failures | Low | No supply chain beyond regular npm dependencies. |
 | A09 Security Logging & Monitoring Failures | Low | Hobby project, no monitoring infrastructure. |
@@ -44,12 +44,9 @@ rather than silently skipped.
   same signal (does the app safely handle arbitrary user input rendered
   live?) without that risk, since it only filters/re-renders client-side and
   never persists anything - that's the scenario built instead.
-- **OWASP ZAP baseline scan, manual devtools check, `npm audit`.** Phase 3 —
-  deliberately manual/periodic, not CI, and only ever against test/
-  acceptance environments, never production with real family data.
-- **A `security` CI job.** Phase 4 — this track currently runs the same way
-  `@visual`/`@accessibility` do (`npm run test:security`), but isn't wired
-  into `.github/workflows/ci.yml` yet.
+- **OWASP ZAP baseline scan, manual devtools check.** Phase 3 — deliberately
+  manual/periodic, not CI, and only ever against test/acceptance
+  environments, never production with real family data.
 
 ## Known gap: missing response headers
 
@@ -71,3 +68,13 @@ assertions once the fix lands.
   `--grep @security`.
 - `npm run test:e2e` explicitly excludes `@security` so these scenarios
   don't also run (and double-count) as part of the main E2E job.
+
+## CI
+
+`.github/workflows/ci.yml`'s `security` job runs after `lint`/`typecheck`,
+same as `accessibility`/`playwright`/`visual`: `npm run test:security` then
+`npm audit --audit-level=high` (this repo's own dependencies, not
+`reis-app`'s). A failure in either step fails CI - like `@visual`, this is a
+genuine gate, not `@external-api`-style best-effort. Its Allure results are
+uploaded as `allure-results-security` and folded into the same published
+report as the other three jobs by `test-summary`.
