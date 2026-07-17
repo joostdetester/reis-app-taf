@@ -39,14 +39,16 @@ const E2E_RISK_BUCKETS = [
 const DEFAULT_E2E_RISK = 'high';
 
 // @known-issue:TICKET-ID (e.g. @known-issue:REIS-142) marks a scenario with
-// an accepted, ticket-tracked failure - it still counts in its risk
-// bucket's total, but a failure there doesn't consume that bucket's failure
-// allowance (it's listed separately below instead, with the ticket
-// reference, so it stays visible rather than silently not counting against
-// anything). Previously @external-api scenarios were blanket-excluded from
-// the gate entirely; that's gone now - they carry a normal risk tag like
-// everything else, and only get an exemption once there's an actual,
-// tracked failure to point at (see ai/release-readiness.md).
+// an accepted, ticket-tracked failure - purely a label for traceability, it
+// does NOT exempt the failure from its risk bucket's failure count or the
+// ready/not-ready verdict (a known issue in @critical, for instance, still
+// blocks release - it isn't a free pass, it just says "this one already has
+// a ticket"). Every failing E2E scenario shows up in exactly one of two
+// tables below the risk-bucket summary: "Known issues" (has the tag, with
+// its ticket reference) or "Unknown issues" (doesn't - something new/
+// unexpected, needs triage). Previously @external-api scenarios were
+// blanket-excluded from the gate entirely; that's gone now - they carry a
+// normal risk tag like everything else (see ai/release-readiness.md).
 const KNOWN_ISSUE_TAG_PREFIX = 'known-issue:';
 
 // Mirrors pageobjects/_shared/accessibility.ts's own WCAG_TAGS/GATE_IMPACTS/
@@ -66,7 +68,7 @@ const SECURITY_THRESHOLD_LABEL = '100% pass (0 failed/broken)';
 async function main() {
   const latestByHistoryId = await loadLatestAllureResults();
 
-  const { buckets: e2eBuckets, knownIssues } = computeE2eBuckets(latestByHistoryId);
+  const { buckets: e2eBuckets, knownIssues, unknownIssues } = computeE2eBuckets(latestByHistoryId);
   const accessibilityLevels = await computeAccessibilityLevels(latestByHistoryId);
   const security = computeSecurity(latestByHistoryId);
 
@@ -78,14 +80,23 @@ async function main() {
   await writeFile(
     path.join(OUT_DIR, 'data.json'),
     JSON.stringify(
-      { generatedAt, overallReady, e2eBuckets, knownIssues, accessibilityLevels, security, excludedSuites: EXCLUDED_SUITES },
+      {
+        generatedAt,
+        overallReady,
+        e2eBuckets,
+        knownIssues,
+        unknownIssues,
+        accessibilityLevels,
+        security,
+        excludedSuites: EXCLUDED_SUITES,
+      },
       null,
       2,
     ),
   );
   await writeFile(
     path.join(OUT_DIR, 'index.html'),
-    buildHtmlReport(overallReady, e2eBuckets, knownIssues, accessibilityLevels, security, generatedAt),
+    buildHtmlReport(overallReady, e2eBuckets, knownIssues, unknownIssues, accessibilityLevels, security, generatedAt),
   );
 
   console.log(overallReady ? 'READY FOR RELEASE' : 'NOT READY FOR RELEASE');
@@ -96,9 +107,15 @@ async function main() {
     );
   }
   if (knownIssues.length) {
-    console.log('Known issues (exempted from the failure count above):');
+    console.log('Known issues (still count toward the failure counts above):');
     for (const k of knownIssues) {
       console.log(`  [${k.ticket}] ${k.name} (${k.riskLabel}) - ${k.status}`);
+    }
+  }
+  if (unknownIssues.length) {
+    console.log('Unknown issues (unexpected failures, no @known-issue tag yet):');
+    for (const u of unknownIssues) {
+      console.log(`  ${u.name} (${u.riskLabel})`);
     }
   }
   console.log('Accessibility (by WCAG level):');
@@ -159,12 +176,14 @@ function computeE2eBuckets(latestByHistoryId) {
     E2E_RISK_BUCKETS.map((b) => [b.key, { total: 0, passed: 0, failures: 0 }]),
   );
   const knownIssues = [];
+  const unknownIssues = [];
 
   for (const test of latestByHistoryId.values()) {
     if (test.parentSuite !== 'E2E') continue;
 
     const bucket = E2E_RISK_BUCKETS.find((b) => test.tags.includes(b.tag));
     const key = bucket?.key ?? DEFAULT_E2E_RISK;
+    const riskLabel = bucket?.label ?? 'High risk';
     const ticket = knownIssueTicket(test.tags);
 
     counts[key].total++;
@@ -173,12 +192,13 @@ function computeE2eBuckets(latestByHistoryId) {
       // A @known-issue scenario that's now passing means the underlying
       // problem may be fixed - surfaced so the tag gets cleaned up rather
       // than silently staying on a scenario that no longer needs it.
-      if (ticket) knownIssues.push({ name: test.name, ticket, riskLabel: bucket?.label ?? 'High risk', status: 'passing' });
+      if (ticket) knownIssues.push({ name: test.name, ticket, riskLabel, status: 'passing' });
     } else if (isFailure(test.status)) {
+      counts[key].failures++;
       if (ticket) {
-        knownIssues.push({ name: test.name, ticket, riskLabel: bucket?.label ?? 'High risk', status: 'failing' });
+        knownIssues.push({ name: test.name, ticket, riskLabel, status: 'failing' });
       } else {
-        counts[key].failures++;
+        unknownIssues.push({ name: test.name, riskLabel, status: 'failing' });
       }
     }
   }
@@ -187,7 +207,7 @@ function computeE2eBuckets(latestByHistoryId) {
     const c = counts[b.key];
     return { ...b, ...c, ready: c.failures <= b.maxFailures };
   });
-  return { buckets, knownIssues };
+  return { buckets, knownIssues, unknownIssues };
 }
 
 function computeSecurity(latestByHistoryId) {
@@ -250,7 +270,7 @@ async function computeAccessibilityLevels(latestByHistoryId) {
   });
 }
 
-function buildHtmlReport(overallReady, e2eBuckets, knownIssues, accessibilityLevels, security, generatedAt) {
+function buildHtmlReport(overallReady, e2eBuckets, knownIssues, unknownIssues, accessibilityLevels, security, generatedAt) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -277,6 +297,7 @@ function buildHtmlReport(overallReady, e2eBuckets, knownIssues, accessibilityLev
         ${e2eBuckets.map(renderE2eRow).join('\n')}
       </tbody>
     </table>
+    ${unknownIssues.length ? renderUnknownIssues(unknownIssues) : ''}
     ${knownIssues.length ? renderKnownIssues(knownIssues) : ''}
   </section>
 
@@ -352,8 +373,8 @@ function renderA11yRow(l) {
 
 function renderKnownIssues(knownIssues) {
   return `
-    <div class="known-issues">
-      <h3>Known issues (excluded from the failure counts above)</h3>
+    <div class="issue-table">
+      <h3>Known issues <span class="muted">(still count toward Failed above)</span></h3>
       <table class="suite-table">
         <thead>
           <tr><th>Ticket</th><th>Scenario</th><th>Risk</th><th>Status</th></tr>
@@ -373,6 +394,30 @@ function renderKnownIssueRow(k) {
         <td>${escapeHtml(k.name)}</td>
         <td>${escapeHtml(k.riskLabel)}</td>
         <td><span class="badge badge-${isStale ? 'stale' : 'known'}">${isStale ? 'Now passing - remove tag?' : 'Still failing'}</span></td>
+      </tr>`;
+}
+
+function renderUnknownIssues(unknownIssues) {
+  return `
+    <div class="issue-table">
+      <h3>Unknown issues <span class="muted">(no @known-issue tag - needs triage)</span></h3>
+      <table class="suite-table">
+        <thead>
+          <tr><th>Scenario</th><th>Risk</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          ${unknownIssues.map(renderUnknownIssueRow).join('\n')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderUnknownIssueRow(u) {
+  return `
+      <tr class="fail">
+        <td>${escapeHtml(u.name)}</td>
+        <td>${escapeHtml(u.riskLabel)}</td>
+        <td><span class="badge badge-fail">Failing</span></td>
       </tr>`;
 }
 
@@ -443,10 +488,11 @@ h1 { margin: 6px 0 12px; font-size: 28px; }
 .badge-fail { background: var(--fail-bg); color: var(--fail); }
 .badge-known { background: var(--warn-bg); color: var(--warn); }
 .badge-stale { background: var(--warn-bg); color: var(--warn); }
-.known-issues { margin-top: 14px; }
-.known-issues h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 8px; }
-.known-issues tr.known td:first-child, .known-issues tr.stale td:first-child { border-left: 4px solid var(--warn); }
-.known-issues code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
+.issue-table { margin-top: 14px; }
+.issue-table h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 8px; }
+.issue-table h3 .muted { text-transform: none; letter-spacing: normal; font-weight: 400; }
+.issue-table tr.known td:first-child, .issue-table tr.stale td:first-child { border-left: 4px solid var(--warn); }
+.issue-table code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
 .excluded { margin-top: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
 .excluded h2 { margin: 0 0 8px; font-size: 16px; }
 .excluded ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; }

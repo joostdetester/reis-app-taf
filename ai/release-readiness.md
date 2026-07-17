@@ -52,17 +52,23 @@ placeholder text, a persistence convenience, an external-API call).
 ### `@known-issue:TICKET-ID`
 
 Marks a scenario with an accepted, ticket-tracked failure - e.g.
-`@known-issue:REIS-142`. The scenario still counts in its risk bucket's
-total, but a failure there doesn't consume that bucket's failure allowance
-(so an already-known, already-filed problem can't itself push the gate to
-"not ready" a second time) - it's listed separately in a **Known issues**
-table under the E2E section instead, with the ticket reference, so it stays
-visible rather than silently not counting against anything.
+`@known-issue:REIS-142`. This is purely a label for traceability, **not an
+exemption**: a known-issue failure still counts fully toward its risk
+bucket's failure total and the ready/not-ready verdict. A known issue in
+`@critical` (0 allowed) still blocks release - tagging something doesn't
+excuse it, it just means there's already a ticket for it.
 
-If a `@known-issue`-tagged scenario starts passing again, it still shows up
-in that table (status "Now passing - remove tag?") - a nudge to file the
-tag's removal along with whatever fixed it, rather than leaving a stale
-exemption in place indefinitely.
+Every failing E2E scenario shows up in exactly one table below the risk-
+bucket summary:
+
+- **Known issues** - has a `@known-issue:TICKET-ID` tag. Shows the ticket
+  reference, risk level, and status. If it starts passing again, it still
+  shows up here (status "Now passing - remove tag?") - a nudge to remove
+  the now-stale tag along with whatever fixed it.
+- **Unknown issues** - failing with no `@known-issue` tag - something new
+  or unexpected. Same shape, no ticket column, since there isn't one yet.
+  Once triaged and filed, add the tag and it moves to Known issues on the
+  next run.
 
 E2E-only for now (not Accessibility/Security) - extend
 `scripts/check-release-readiness.mjs`'s known-issue handling to those
