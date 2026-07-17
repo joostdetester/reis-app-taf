@@ -503,6 +503,12 @@ jobs:
           }
           EOF
 
+      # See scripts/dedupe-allure-subsuite.mjs - strips the redundant/empty
+      # subSuite label allure-playwright's reporter auto-fills for single-
+      # feature parentSuites (Accessibility/Visual Regression/Security),
+      # which otherwise renders as an extra folder in the report.
+      - run: node scripts/dedupe-allure-subsuite.mjs
+
       - run: npx allure generate allure-results --clean -o site/${{ steps.branch.outputs.dir }}
 
       # Publishes the standalone accessibility HTML report (see
