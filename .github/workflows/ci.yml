@@ -214,8 +214,17 @@ jobs:
   # this repo's control - so this job does NOT continue-on-error, and a
   # failure here fails CI. See ai/visual-regression-testing.md for the tag,
   # the Windows/Linux baseline mismatch, and how to update baselines.
+  #
+  # Temporarily disabled (if: false) - the Today page's day-card list is
+  # driven by the live app's real current date, so its baseline goes stale
+  # on its own every time a day rolls over, independent of any actual UI
+  # change (confirmed live: a same-day re-run stayed green, the next day's
+  # run failed on a page-height diff alone). Re-enable once that page's
+  # visual check no longer depends on wall-clock date - e.g. pinning the
+  # browser's clock for that scenario (see ai/visual-regression-testing.md).
   visual:
     name: Visual Regression
+    if: false
     runs-on: ubuntu-latest
     needs: [lint, typecheck]
     environment: "${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'acceptance' && 'acceptance' || 'test' }}"
