@@ -17,16 +17,19 @@ export const test = base.extend<BddFixtures & { _allureMeta: void }>({
         await safeAllure(() => allure.tags(...tags));
       }
 
-      // Accessibility/visual scenarios also carry @ui (they exercise UI
-      // pages), but they must not land in the same "ui" epic/feature bucket
-      // as ordinary E2E tests - checked before the generic typeTags lookup
-      // so they win regardless of tag order on the Feature line.
-      const typeTags = new Set(['api', 'ui', 'db', 'e2e', 'accessibility', 'visual']);
+      // Accessibility/visual/security scenarios also carry @ui (they
+      // exercise UI pages), but they must not land in the same "ui"
+      // epic/feature bucket as ordinary E2E tests - checked before the
+      // generic typeTags lookup so they win regardless of tag order on the
+      // Feature line.
+      const typeTags = new Set(['api', 'ui', 'db', 'e2e', 'accessibility', 'visual', 'security']);
       const type = tags.includes('accessibility')
         ? 'accessibility'
         : tags.includes('visual')
           ? 'visual'
-          : tags.find((t) => typeTags.has(t));
+          : tags.includes('security')
+            ? 'security'
+            : tags.find((t) => typeTags.has(t));
       if (type) {
         await safeAllure(() => allure.feature(type));
         await safeAllure(() => allure.label('type', type));
@@ -39,13 +42,15 @@ export const test = base.extend<BddFixtures & { _allureMeta: void }>({
       }
 
       // Top-level Suites grouping: Accessibility vs Visual Regression vs
-      // E2E, so the three test types show as separate branches instead of
-      // one flat list of per-feature suites.
+      // Security vs E2E, so each test type shows as its own branch instead
+      // of one flat list of per-feature suites.
       const parentSuite = tags.includes('accessibility')
         ? 'Accessibility'
         : tags.includes('visual')
           ? 'Visual Regression'
-          : 'E2E';
+          : tags.includes('security')
+            ? 'Security'
+            : 'E2E';
       await safeAllure(() => allure.parentSuite(parentSuite));
 
       // One folder per browser/device project under each parentSuite - most
