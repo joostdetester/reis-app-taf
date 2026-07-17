@@ -5,6 +5,7 @@ Feature: Practical information
   I want weather, currency conversion and key local information in one place
   So that I don't need to look it up elsewhere while travelling
 
+  @external-api
   Scenario: Switching city in the weather selector shows that city's 14-day forecast
     Given the user opens the practical information page
     When the user selects a different city in the weather selector
@@ -20,6 +21,7 @@ Feature: Practical information
     When the user enters an amount in the Euro field
     Then the Peso field shows the correctly converted amount
 
+  @external-api
   Scenario: The displayed exchange-rate date matches today's date
     Given the user opens the practical information page
     Then the exchange rate date shown next to the converter matches today's date

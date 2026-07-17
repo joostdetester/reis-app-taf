@@ -74,3 +74,35 @@ When('the user visits every main page in sequence', async ({ page, world }) => {
 Then('no console errors should have occurred', async ({ world }) => {
   expect(world.consoleErrors).toEqual([]);
 });
+
+When('the user taps through every main section', async ({ world }) => {
+  // Each section's heading must be checked right after its own tap, not
+  // after the whole loop - by the time later taps have navigated away, only
+  // the final route's page is still on screen to inspect.
+  const notShown: string[] = [];
+  for (const route of ALL_ROUTES) {
+    await world.nav.tapTo(route);
+    try {
+      await expect(world.nav.headingFor(route)).toBeVisible();
+    } catch {
+      notShown.push(route);
+    }
+  }
+  world.sectionsNotShownAfterTap = notShown;
+});
+
+Then('each section is shown in turn', async ({ world }) => {
+  expect(world.sectionsNotShownAfterTap).toEqual([]);
+});
+
+When('the user scrolls to the bottom of the page', async ({ page }) => {
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+});
+
+Then('the bottom navigation does not overlap the page content', async ({ world }) => {
+  const navBox = await world.nav.bottomNav.boundingBox();
+  const contentBox = await world.nav.lastMainContent.boundingBox();
+  expect(navBox, 'Expected the bottom nav to be visible').not.toBeNull();
+  expect(contentBox, 'Expected page content to be visible').not.toBeNull();
+  expect(contentBox!.y + contentBox!.height).toBeLessThanOrEqual(navBox!.y);
+});

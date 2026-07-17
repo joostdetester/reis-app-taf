@@ -17,13 +17,44 @@ Given('the user opens the practical information page', async ({ page, world }) =
   world.nav = nav;
 });
 
+// The page shows a brief "Laden…" placeholder before its real content (which
+// is considerably taller) mounts, and the nested weather forecast widget has
+// its own, separate loading state that resolves later still (its own live
+// open-meteo call) - needed as an explicit step rather than folded into the
+// Given above, for scenarios that measure page height/layout and would
+// otherwise race either of those two swaps.
+//
+// Waits for the widget's own "Laden…" to disappear rather than asserting a
+// specific forecast count: this step only cares that the page has reached
+// *some* final, settled height before it gets measured, not whether the
+// live weather call itself succeeded (that's covered elsewhere, and
+// consistently coupling an unrelated layout check to that live API's
+// uptime would just add flakiness for no benefit here). Swallows a timeout
+// so a weather call that never settles still leaves the page in a valid,
+// measurable (if shorter) state instead of failing this step outright.
+Given('the practical information page has finished loading', async ({ page, world }) => {
+  await world.nav.practicalHeading.waitFor({ state: 'visible' });
+  await page
+    .getByTestId('weather-forecast')
+    .getByText('Laden…')
+    .waitFor({ state: 'hidden', timeout: 20_000 })
+    .catch(() => {});
+});
+
 When('the user selects a different city in the weather selector', async ({ page, world }) => {
   world.selectedCity = await new PracticalPage(page).selectSecondCity();
 });
 
 Then('the 14-day weather forecast for that city is shown', async ({ page, world }) => {
   const practical = new PracticalPage(page);
-  await expect(practical.forecastDays).toHaveCount(14);
+  // The forecast comes from a live third-party API (open-meteo.com) called
+  // straight from the browser after the city is selected - it shows "Laden…"
+  // until that call resolves. Locally it resolves in ~200ms, but on CI
+  // runners it has been observed still loading past Playwright's default 5s
+  // assertion timeout (confirmed via a CI failure's page snapshot showing
+  // "Laden…" at the 5s mark, not an error state) - so this assertion gets a
+  // longer, explicit timeout rather than failing on live-API latency.
+  await expect(practical.forecastDays).toHaveCount(14, { timeout: 20_000 });
   await expect(practical.citySelect).toHaveValue(world.selectedCity);
 });
 
@@ -67,8 +98,17 @@ Then(
     );
     const match = rateText.match(/(\d{4}-\d{2}-\d{2})/);
     expect(match, `Expected an exchange-rate date in "${rateText}"`).not.toBeNull();
-    const today = new Date().toISOString().slice(0, 10);
-    expect(match![1]).toBe(today);
+    // The live rate's date comes from the third-party FX API's own daily
+    // publish cycle, not this test's clock - confirmed on CI (stable across
+    // all 3 attempts, so not a flaky race) that the API can still be serving
+    // yesterday's dated rate for a while after UTC midnight, presumably
+    // because its daily refresh runs later than that. Accepting either date
+    // still catches a genuinely stale/broken rate (anything older than
+    // yesterday), just not this one-day publish lag outside the app's control.
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const acceptableDates = [now, yesterday].map((d) => d.toISOString().slice(0, 10));
+    expect(acceptableDates).toContain(match![1]);
   },
 );
 

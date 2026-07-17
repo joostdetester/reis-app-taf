@@ -1,16 +1,16 @@
 import { Locator, Page } from '@playwright/test';
 
-// The Hotels page (#/hotels): a list of .list-card entries, one per booked
-// accommodation.
+// The Hotels page (#/hotels): a list of hotel-card entries (data-testid
+// `hotel-card-<accommodationId>`), one per booked accommodation.
 export class HotelsPage {
   constructor(private readonly page: Page) {}
 
   get pageContent(): Locator {
-    return this.page.locator('main');
+    return this.page.getByTestId('page-hotels');
   }
 
   get hotelCards(): Locator {
-    return this.page.locator('.grid.cols > .list-card');
+    return this.page.locator('[data-testid^="hotel-card-"]');
   }
 
   hotelCard(index: number): Locator {
@@ -18,34 +18,40 @@ export class HotelsPage {
   }
 
   name(index: number): Locator {
-    return this.hotelCard(index).locator('h3');
+    return this.hotelCard(index).getByRole('heading', { level: 3 });
   }
 
   stayDates(index: number): Locator {
-    return this.hotelCard(index).locator('.muted').first();
+    return this.hotelCard(index).locator('[data-testid^="hotel-stay-dates-"]');
   }
 
   checkInOut(index: number): Locator {
-    return this.hotelCard(index).locator('p.muted');
+    return this.hotelCard(index).locator('[data-testid^="hotel-checkinout-"]');
   }
 
   address(index: number): Locator {
-    return this.hotelCard(index).locator('.row', { hasText: 'Adres' }).locator('.value');
+    return this.hotelCard(index).locator(
+      '[data-testid^="field-accommodations-address-"][data-testid$="-value"]',
+    );
   }
 
   phone(index: number): Locator {
-    return this.hotelCard(index).locator('.row', { hasText: 'Telefoon' }).locator('.value');
+    return this.hotelCard(index).locator(
+      '[data-testid^="field-accommodations-phone-"][data-testid$="-value"]',
+    );
   }
 
   bookingNumber(index: number): Locator {
-    return this.hotelCard(index).locator('.row', { hasText: 'Boekingsnummer' }).locator('.value');
+    return this.hotelCard(index).locator(
+      '[data-testid^="field-accommodations-booking_reference-"][data-testid$="-value"]',
+    );
   }
 
   mapsLink(index: number): Locator {
-    return this.hotelCard(index).getByRole('link', { name: 'Open in Google Maps' });
+    return this.hotelCard(index).locator('[data-testid^="hotel-maps-link-"]');
   }
 
   bookingLink(index: number): Locator {
-    return this.hotelCard(index).getByRole('link', { name: 'Bekijk op Booking.com' });
+    return this.hotelCard(index).locator('[data-testid^="hotel-booking-link-"]');
   }
 }
