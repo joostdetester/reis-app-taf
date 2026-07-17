@@ -11,7 +11,7 @@ Feature: Today page
     Then the day card for today shows the destination
     And the day card for today shows the date
 
-  @external-api
+  @external-api @risk-low @known-issue:REIS-142
   Scenario: The day card shows a weather forecast and beach score for today
     Given the user opens the today page
     Then the day card for today shows a weather forecast

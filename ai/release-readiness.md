@@ -35,8 +35,11 @@ lenient tolerance). Always tag a new E2E scenario explicitly rather than
 relying on that default.
 
 `@external-api` scenarios (live third-party API calls, already best-effort/
-continue-on-error in the E2E job) are excluded entirely, not risk-tagged -
-an outage there reflects that API's uptime, not this app's readiness.
+continue-on-error in the E2E job) carry a normal risk tag like everything
+else - they're no longer blanket-excluded (that used to hide a real,
+recurring weather-API failure from this report entirely, with no
+indication anywhere that it had been filtered out). Use `@known-issue`
+below once one of them actually has an accepted, tracked failure.
 
 Guideline for tagging a new scenario: **Critical** = the app is unusable or
 shows wrong trip-critical information without it (e.g. core page navigation,
@@ -44,7 +47,26 @@ the Today page's destination/flight/hotel/activity summary, an access-
 control boundary). **High** = a real feature breaks but the app is still
 usable (e.g. a secondary view mode, a currency conversion, opening an edit
 form). **Low** = a nice-to-have breaks (an external link, cosmetic
-placeholder text, a persistence convenience).
+placeholder text, a persistence convenience, an external-API call).
+
+### `@known-issue:TICKET-ID`
+
+Marks a scenario with an accepted, ticket-tracked failure - e.g.
+`@known-issue:REIS-142`. The scenario still counts in its risk bucket's
+total, but a failure there doesn't consume that bucket's failure allowance
+(so an already-known, already-filed problem can't itself push the gate to
+"not ready" a second time) - it's listed separately in a **Known issues**
+table under the E2E section instead, with the ticket reference, so it stays
+visible rather than silently not counting against anything.
+
+If a `@known-issue`-tagged scenario starts passing again, it still shows up
+in that table (status "Now passing - remove tag?") - a nudge to file the
+tag's removal along with whatever fixed it, rather than leaving a stale
+exemption in place indefinitely.
+
+E2E-only for now (not Accessibility/Security) - extend
+`scripts/check-release-readiness.mjs`'s known-issue handling to those
+sections too if that's ever needed there.
 
 ## Accessibility - by WCAG level
 

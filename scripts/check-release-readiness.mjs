@@ -25,14 +25,6 @@ const EXCLUDED_SUITES = [
   },
 ];
 
-// @external-api scenarios call a live third-party API directly and are
-// already treated as best-effort everywhere else in this project (continue-
-// on-error in the E2E job, see ci.yml) - excluded from the E2E count for the
-// same reason: an outage there reflects that API's uptime, not this app's
-// release readiness. Not risk-tagged for the same reason - it wouldn't
-// matter, they're filtered out before risk-bucketing runs.
-const EXCLUDED_TAGS = new Set(['external-api']);
-
 // Every E2E scenario is expected to carry exactly one of these (see any
 // features/*.feature file) - @critical must always pass, @risk-high/
 // @risk-low get a small failure allowance instead of the usual 100%. A
@@ -45,6 +37,17 @@ const E2E_RISK_BUCKETS = [
   { key: 'low', tag: 'risk-low', label: 'Low risk', maxFailures: 5 },
 ];
 const DEFAULT_E2E_RISK = 'high';
+
+// @known-issue:TICKET-ID (e.g. @known-issue:REIS-142) marks a scenario with
+// an accepted, ticket-tracked failure - it still counts in its risk
+// bucket's total, but a failure there doesn't consume that bucket's failure
+// allowance (it's listed separately below instead, with the ticket
+// reference, so it stays visible rather than silently not counting against
+// anything). Previously @external-api scenarios were blanket-excluded from
+// the gate entirely; that's gone now - they carry a normal risk tag like
+// everything else, and only get an exemption once there's an actual,
+// tracked failure to point at (see ai/release-readiness.md).
+const KNOWN_ISSUE_TAG_PREFIX = 'known-issue:';
 
 // Mirrors pageobjects/_shared/accessibility.ts's own WCAG_TAGS/GATE_IMPACTS/
 // SEVERITY_LABELS (critical->Blocker/Critical, serious->Major,
@@ -63,7 +66,7 @@ const SECURITY_THRESHOLD_LABEL = '100% pass (0 failed/broken)';
 async function main() {
   const latestByHistoryId = await loadLatestAllureResults();
 
-  const e2eBuckets = computeE2eBuckets(latestByHistoryId);
+  const { buckets: e2eBuckets, knownIssues } = computeE2eBuckets(latestByHistoryId);
   const accessibilityLevels = await computeAccessibilityLevels(latestByHistoryId);
   const security = computeSecurity(latestByHistoryId);
 
@@ -75,14 +78,14 @@ async function main() {
   await writeFile(
     path.join(OUT_DIR, 'data.json'),
     JSON.stringify(
-      { generatedAt, overallReady, e2eBuckets, accessibilityLevels, security, excludedSuites: EXCLUDED_SUITES },
+      { generatedAt, overallReady, e2eBuckets, knownIssues, accessibilityLevels, security, excludedSuites: EXCLUDED_SUITES },
       null,
       2,
     ),
   );
   await writeFile(
     path.join(OUT_DIR, 'index.html'),
-    buildHtmlReport(overallReady, e2eBuckets, accessibilityLevels, security, generatedAt),
+    buildHtmlReport(overallReady, e2eBuckets, knownIssues, accessibilityLevels, security, generatedAt),
   );
 
   console.log(overallReady ? 'READY FOR RELEASE' : 'NOT READY FOR RELEASE');
@@ -91,6 +94,12 @@ async function main() {
     console.log(
       `  ${b.label}: ${b.passed}/${b.total} passed, ${b.failures} failing (max ${b.maxFailures} allowed) - ${b.ready ? 'OK' : 'FAIL'}`,
     );
+  }
+  if (knownIssues.length) {
+    console.log('Known issues (exempted from the failure count above):');
+    for (const k of knownIssues) {
+      console.log(`  [${k.ticket}] ${k.name} (${k.riskLabel}) - ${k.status}`);
+    }
   }
   console.log('Accessibility (by WCAG level):');
   for (const l of accessibilityLevels) {
@@ -140,26 +149,45 @@ function isFailure(status) {
   return status !== 'passed' && status !== 'skipped';
 }
 
+function knownIssueTicket(tags) {
+  const tag = tags.find((t) => t.startsWith(KNOWN_ISSUE_TAG_PREFIX));
+  return tag ? tag.slice(KNOWN_ISSUE_TAG_PREFIX.length) : null;
+}
+
 function computeE2eBuckets(latestByHistoryId) {
   const counts = Object.fromEntries(
     E2E_RISK_BUCKETS.map((b) => [b.key, { total: 0, passed: 0, failures: 0 }]),
   );
+  const knownIssues = [];
 
   for (const test of latestByHistoryId.values()) {
     if (test.parentSuite !== 'E2E') continue;
-    if (test.tags.some((t) => EXCLUDED_TAGS.has(t))) continue;
 
     const bucket = E2E_RISK_BUCKETS.find((b) => test.tags.includes(b.tag));
     const key = bucket?.key ?? DEFAULT_E2E_RISK;
+    const ticket = knownIssueTicket(test.tags);
+
     counts[key].total++;
-    if (test.status === 'passed') counts[key].passed++;
-    else if (isFailure(test.status)) counts[key].failures++;
+    if (test.status === 'passed') {
+      counts[key].passed++;
+      // A @known-issue scenario that's now passing means the underlying
+      // problem may be fixed - surfaced so the tag gets cleaned up rather
+      // than silently staying on a scenario that no longer needs it.
+      if (ticket) knownIssues.push({ name: test.name, ticket, riskLabel: bucket?.label ?? 'High risk', status: 'passing' });
+    } else if (isFailure(test.status)) {
+      if (ticket) {
+        knownIssues.push({ name: test.name, ticket, riskLabel: bucket?.label ?? 'High risk', status: 'failing' });
+      } else {
+        counts[key].failures++;
+      }
+    }
   }
 
-  return E2E_RISK_BUCKETS.map((b) => {
+  const buckets = E2E_RISK_BUCKETS.map((b) => {
     const c = counts[b.key];
     return { ...b, ...c, ready: c.failures <= b.maxFailures };
   });
+  return { buckets, knownIssues };
 }
 
 function computeSecurity(latestByHistoryId) {
@@ -222,7 +250,7 @@ async function computeAccessibilityLevels(latestByHistoryId) {
   });
 }
 
-function buildHtmlReport(overallReady, e2eBuckets, accessibilityLevels, security, generatedAt) {
+function buildHtmlReport(overallReady, e2eBuckets, knownIssues, accessibilityLevels, security, generatedAt) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -249,6 +277,7 @@ function buildHtmlReport(overallReady, e2eBuckets, accessibilityLevels, security
         ${e2eBuckets.map(renderE2eRow).join('\n')}
       </tbody>
     </table>
+    ${knownIssues.length ? renderKnownIssues(knownIssues) : ''}
   </section>
 
   <section class="group">
@@ -321,6 +350,32 @@ function renderA11yRow(l) {
       </tr>`;
 }
 
+function renderKnownIssues(knownIssues) {
+  return `
+    <div class="known-issues">
+      <h3>Known issues (excluded from the failure counts above)</h3>
+      <table class="suite-table">
+        <thead>
+          <tr><th>Ticket</th><th>Scenario</th><th>Risk</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          ${knownIssues.map(renderKnownIssueRow).join('\n')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderKnownIssueRow(k) {
+  const isStale = k.status === 'passing';
+  return `
+      <tr class="${isStale ? 'stale' : 'known'}">
+        <td><code>${escapeHtml(k.ticket)}</code></td>
+        <td>${escapeHtml(k.name)}</td>
+        <td>${escapeHtml(k.riskLabel)}</td>
+        <td><span class="badge badge-${isStale ? 'stale' : 'known'}">${isStale ? 'Now passing - remove tag?' : 'Still failing'}</span></td>
+      </tr>`;
+}
+
 function renderExcluded() {
   return `
   <section class="excluded">
@@ -352,6 +407,8 @@ const CSS = `
   --pass-bg: #e8f7ee;
   --fail: #991b1b;
   --fail-bg: #fee2e2;
+  --warn: #9a6b1f;
+  --warn-bg: #faf0dc;
 }
 * { box-sizing: border-box; }
 body {
@@ -384,6 +441,12 @@ h1 { margin: 6px 0 12px; font-size: 28px; }
 .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
 .badge-pass { background: var(--pass-bg); color: var(--pass); }
 .badge-fail { background: var(--fail-bg); color: var(--fail); }
+.badge-known { background: var(--warn-bg); color: var(--warn); }
+.badge-stale { background: var(--warn-bg); color: var(--warn); }
+.known-issues { margin-top: 14px; }
+.known-issues h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 8px; }
+.known-issues tr.known td:first-child, .known-issues tr.stale td:first-child { border-left: 4px solid var(--warn); }
+.known-issues code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
 .excluded { margin-top: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
 .excluded h2 { margin: 0 0 8px; font-size: 16px; }
 .excluded ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
