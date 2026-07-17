@@ -141,6 +141,18 @@ jobs:
           path: a11y-report/
           if-no-files-found: warn
 
+      # Raw per-scan records (see pageobjects/_shared/accessibility.ts) - the
+      # release-readiness job needs these directly, not just the built HTML
+      # report, to show each WCAG level's actual severity-count breakdown
+      # against its threshold (scripts/check-release-readiness.mjs).
+      - name: Upload accessibility scan data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: a11y-report-data
+          path: a11y-report-data/
+          if-no-files-found: warn
+
   playwright:
     name: E2E
     runs-on: ubuntu-latest
@@ -331,11 +343,82 @@ jobs:
           path: allure-results/
           if-no-files-found: warn
 
-  # Combines all four jobs' raw Allure results into one report and publishes
-  # it to GitHub Pages — a single meta overview (pass/fail per suite/tag)
-  # with drill-down into every individual test, native to Allure. Runs even
-  # if accessibility/playwright/visual/security failed (`if: always()`), so a failing
-  # run still gets a report showing what happened.
+  # Aggregates E2E/Accessibility/Security's raw Allure results into a single
+  # release-readiness verdict and fails this job if any of them isn't 100%
+  # pass - a hard gate, same as visual/security. See
+  # scripts/check-release-readiness.mjs and ai/release-readiness.md for the
+  # policy this encodes. `needs` deliberately excludes `visual`: Visual
+  # Regression is currently disabled (`if: false` above), and the script
+  # excludes it from the count on its own rather than silently treating a
+  # 0/0 "no results" as passing - depending on a job that never runs would
+  # just add a pointless wait with no bearing on the verdict.
+  #
+  # `if: always()`: still runs (and reports "no results" -> not ready,
+  # fail-closed) even if lint/typecheck failed and skipped the three jobs
+  # below, rather than silently skipping the gate itself.
+  release-readiness:
+    name: Release Readiness
+    runs-on: ubuntu-latest
+    needs: [accessibility, playwright, security]
+    if: always()
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+
+      - run: npm install
+
+      - name: Download E2E Allure results
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: allure-results-e2e
+          path: allure-results
+
+      - name: Download Accessibility Allure results
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: allure-results-accessibility
+          path: allure-results
+
+      - name: Download Security Allure results
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: allure-results-security
+          path: allure-results
+
+      # Raw per-scan records, not just pass/fail - see
+      # scripts/check-release-readiness.mjs for why (per-WCAG-level
+      # severity-count breakdown against its own threshold).
+      - name: Download accessibility scan data
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: a11y-report-data
+          path: a11y-report-data
+
+      # Exit code from this step is the gate itself - a non-zero exit (not
+      # every suite at 100% pass) fails this job.
+      - run: npm run release:readiness
+
+      - name: Upload release readiness report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-readiness-report
+          path: release-readiness-report/
+          if-no-files-found: warn
+
+  # Combines all four test jobs' raw Allure results (plus the release-
+  # readiness verdict) into one report and publishes it to GitHub Pages — a
+  # single meta overview (pass/fail per suite/tag) with drill-down into
+  # every individual test, native to Allure. Runs even if accessibility/
+  # playwright/visual/security/release-readiness failed (`if: always()`), so
+  # a failing run still gets a report showing what happened.
   #
   # NOTE: the published report is publicly reachable at the repo's Pages
   # URL, even though this repo is private — GitHub Pages has no "private"
@@ -362,7 +445,7 @@ jobs:
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [accessibility, playwright, visual, security]
+    needs: [accessibility, playwright, visual, security, release-readiness]
     if: always() && github.event_name != 'pull_request'
     permissions:
       contents: read
@@ -422,6 +505,13 @@ jobs:
         with:
           name: a11y-report
           path: a11y-report-download
+
+      - name: Download release readiness report
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: release-readiness-report
+          path: release-readiness-report-download
 
       # This branch's own report lives under site/<branch>/ - main and
       # acceptance are the only two branches this workflow runs on.
@@ -523,6 +613,18 @@ jobs:
             cp -r a11y-report-download/. "site/${{ steps.branch.outputs.dir }}/a11y-report/"
           fi
 
+      # Reuses this same, already-safe single Pages deploy rather than
+      # standing up a second one for the readiness report specifically -
+      # deliberate, see the note above test-summary about PR-triggered
+      # deploys racing and wiping the real published site.
+      - name: Include release readiness report in the site
+        continue-on-error: true
+        run: |
+          if [ -d release-readiness-report-download ] && [ -n "$(ls -A release-readiness-report-download 2>/dev/null)" ]; then
+            mkdir -p "site/${{ steps.branch.outputs.dir }}/release-readiness"
+            cp -r release-readiness-report-download/. "site/${{ steps.branch.outputs.dir }}/release-readiness/"
+          fi
+
       # Recover the other branch's last-deployed report so this deploy
       # doesn't wipe it out - actions/deploy-pages publishes the *entire*
       # uploaded artifact as the site each time, so anything not carried
@@ -563,6 +665,7 @@ jobs:
             [ -d "site/$branch" ] || return 0
             echo "<li><a href=\"$branch/\">$branch</a>"
             [ -d "site/$branch/a11y-report" ] && echo " (<a href=\"$branch/a11y-report/\">accessibility report</a>)"
+            [ -d "site/$branch/release-readiness" ] && echo " (<a href=\"$branch/release-readiness/\">release readiness</a>)"
             echo "</li>"
           }
           {
@@ -589,4 +692,7 @@ jobs:
           echo "- Allure report: ${{ steps.deployment.outputs.page_url }}${{ steps.branch.outputs.dir }}/" >> "$GITHUB_STEP_SUMMARY"
           if [ -d "site/${{ steps.branch.outputs.dir }}/a11y-report" ]; then
             echo "- Accessibility HTML report: ${{ steps.deployment.outputs.page_url }}${{ steps.branch.outputs.dir }}/a11y-report/" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -d "site/${{ steps.branch.outputs.dir }}/release-readiness" ]; then
+            echo "- Release readiness report: ${{ steps.deployment.outputs.page_url }}${{ steps.branch.outputs.dir }}/release-readiness/" >> "$GITHUB_STEP_SUMMARY"
           fi

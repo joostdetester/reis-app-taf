@@ -7,4 +7,5 @@ allure-results/
 allure-report/
 a11y-report-data/
 a11y-report/
+release-readiness-report/
 .env
