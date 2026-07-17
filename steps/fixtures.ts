@@ -65,27 +65,35 @@ export const test = base.extend<BddFixtures & { _allureMeta: void }>({
       if (suiteName && suiteName.toLowerCase() !== parentSuite.toLowerCase()) {
         await safeAllure(() => allure.subSuite(suiteName));
       } else {
-        // suiteName is redundant with parentSuite - accessibility.feature and
-        // visual-regression.feature are each the only feature file carrying
-        // their tag, so their filename-derived name always just repeats the
-        // parentSuite. Fall back to whatever sits between the Feature title
-        // and the test's own title in testInfo.titlePath instead - for a
-        // Scenario Outline (accessibility's case) that's the outline's own
-        // title (e.g. "Today page meets WCAG level <level>"), genuinely more
-        // specific than the Feature name. When nothing's left after
-        // filtering (a flat scenario with no extra nesting, e.g. every
-        // visual-regression.feature scenario), this sets subSuite to '' -
-        // allure-playwright's reporter only checks *presence* of the
-        // subSuite label (not its value) before falling back to the same
-        // redundant Feature-name text itself, so an empty label still
-        // suppresses that fallback. Confirmed live: this still renders an
-        // extra (blank-named) tree level rather than none at all - a minor
-        // cosmetic wrinkle, but a clearly better one than the exact-text
-        // duplication this replaces.
+        // suiteName is redundant with parentSuite - accessibility.feature,
+        // visual-regression.feature and security.feature are each the only
+        // feature file carrying their tag, so their filename-derived name
+        // always just repeats the parentSuite. Fall back to whatever sits
+        // between the Feature title and the test's own title in
+        // testInfo.titlePath instead - for a Scenario Outline
+        // (accessibility's case) that's the outline's own title (e.g.
+        // "Today page meets WCAG level <level>"), genuinely more specific
+        // than the Feature name. A flat scenario with no extra nesting
+        // (every visual-regression.feature/security.feature scenario)
+        // leaves nothing there, so subSuite is skipped entirely below -
+        // but allure-playwright's own reporter (dist/index.js, onTestEnd)
+        // then unconditionally fills SUB_SUITE itself from the BDD Feature-
+        // level describe block whenever the label isn't already set, no
+        // reporter option disables this. That lands back on the same
+        // parentSuite text, one level down - not blank, but still a
+        // redundant extra folder. scripts/dedupe-allure-subsuite.mjs strips
+        // it from the raw results (run between the test jobs and `allure
+        // generate`) so the report ends up with no third level at all -
+        // confirmed via allure-report/data/suites.json. Explicitly setting
+        // subSuite to '' here instead doesn't help either: it does preempt
+        // the reporter's fallback, but Allure's own UI then renders that
+        // empty string as a literal "<Empty>" folder - confirmed live.
         const inner = testInfo.titlePath
           .slice(1, -1)
           .filter((segment) => segment.toLowerCase() !== parentSuite.toLowerCase());
-        await safeAllure(() => allure.subSuite(inner.join(' > ')));
+        if (inner.length) {
+          await safeAllure(() => allure.subSuite(inner.join(' > ')));
+        }
       }
 
       await use();
