@@ -16,13 +16,14 @@
     "test:visual:update": "npm run bddgen && npx playwright test --grep @visual --update-snapshots",
     "test:security": "npm run bddgen && npx playwright test --grep @security --reporter=list,allure-playwright",
     "a11y:report": "node scripts/build-a11y-report.mjs",
+    "release:readiness": "node scripts/check-release-readiness.mjs",
     "allure:generate": "node scripts/dedupe-allure-subsuite.mjs && allure generate allure-results --clean -o allure-report || true",
     "allure:open": "allure open allure-report || true",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
-    "clean": "rimraf test-results allure-results allure-report playwright-report .features-gen a11y-report-data a11y-report"
+    "clean": "rimraf test-results allure-results allure-report playwright-report .features-gen a11y-report-data a11y-report release-readiness-report"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",
