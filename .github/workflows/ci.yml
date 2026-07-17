@@ -314,6 +314,7 @@ jobs:
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
           API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          EDIT_TOKEN: ${{ secrets.EDIT_TOKEN }}
 
       # This repo's own dependencies, not reis-app's - a separate, manual
       # concern (ai/security-testing.md phase 3). `high` and up only: this
