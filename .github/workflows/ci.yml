@@ -433,9 +433,14 @@ jobs:
           mkdir -p allure-results/history
           REPO_NAME="${GITHUB_REPOSITORY#*/}"
           PAGES_URL="https://${{ github.repository_owner }}.github.io/${REPO_NAME}/${{ steps.branch.outputs.dir }}/"
+          echo "DIAG: Fetching history from ${PAGES_URL}history/"
           for f in history.json history-trend.json categories-trend.json duration-trend.json retry-trend.json; do
-            curl -fsSL "${PAGES_URL}history/$f" -o "allure-results/history/$f" 2>/dev/null || true
+            HTTP_CODE=$(curl -sSL -w "%{http_code}" "${PAGES_URL}history/$f" -o "allure-results/history/$f")
+            SIZE=$(wc -c < "allure-results/history/$f" 2>/dev/null || echo 0)
+            echo "DIAG: $f -> HTTP $HTTP_CODE, ${SIZE} bytes"
           done
+          echo "DIAG: ls allure-results/history/"
+          ls -la allure-results/history/
 
       # Fills the "Environment" widget. Deliberately excludes BASE_URL /
       # API_BASE_URL / USER_EMAIL / USER_PASSWORD — this report is publicly
@@ -489,6 +494,18 @@ jobs:
           EOF
 
       - run: npx allure generate allure-results --clean -o site/${{ steps.branch.outputs.dir }}
+
+      - name: DIAG - check output history totals
+        run: |
+          node -e "
+            const fs = require('fs');
+            const p = 'site/${{ steps.branch.outputs.dir }}/history/history.json';
+            if (!fs.existsSync(p)) { console.log('DIAG: no output history.json'); process.exit(0); }
+            const j = JSON.parse(fs.readFileSync(p, 'utf-8'));
+            const totals = Object.values(j).map(v => v.statistic.total);
+            const dist = totals.reduce((a,t)=>{a[t]=(a[t]||0)+1;return a;},{});
+            console.log('DIAG: output history entries:', Object.keys(j).length, 'distribution:', JSON.stringify(dist));
+          "
 
       # Publishes the standalone accessibility HTML report (see
       # ai/accessibility-testing.md) alongside the Allure report, under this
