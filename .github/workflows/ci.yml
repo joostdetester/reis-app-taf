@@ -344,11 +344,26 @@ jobs:
   # main and acceptance each publish their own Allure report under their own
   # subpath (/main/, /acceptance/) on the one shared Pages site, so a run on
   # one branch never wipes out the other branch's latest report.
+  #
+  # `github.event_name != 'pull_request'` - deliberately skipped for PR runs,
+  # not just a nice-to-have. Every other step below keys its output path off
+  # `github.ref_name`, which for a `pull_request` event is the synthetic
+  # `<PR number>/merge` ref, not the target branch - confirmed live: a PR run
+  # tried to fetch history from `.../5/merge/history/...` (404) and would
+  # have deployed there too. Worse than a wrong-but-harmless path: since
+  # `actions/deploy-pages` republishes the *entire* site on every deploy,
+  # that PR-triggered deploy racing the real post-merge push-triggered
+  # deploy could wholesale wipe the actual branch's published report - this
+  # is almost certainly why every test's Allure history sat stuck at exactly
+  # one run despite dozens of real CI runs (each reset by the next PR run
+  # instead of accumulating). PR runs already get their pass/fail signal
+  # from the other four jobs; publishing a report for not-yet-merged code
+  # under the real branch's public path was never correct anyway.
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
     needs: [accessibility, playwright, visual, security]
-    if: always()
+    if: always() && github.event_name != 'pull_request'
     permissions:
       contents: read
       pages: write
