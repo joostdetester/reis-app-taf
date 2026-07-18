@@ -27,16 +27,30 @@ const EXCLUDED_SUITES = [
 
 // Every E2E scenario is expected to carry exactly one of these (see any
 // features/*.feature file) - @critical must always pass, @risk-high/
-// @risk-low get a small failure allowance instead of the usual 100%. A
-// scenario that's missing a risk tag defaults to 'high' (fail-closed: an
-// un-tagged scenario counts as risky rather than silently getting the most
-// lenient tolerance).
+// @risk-low get a failure allowance instead of the usual 100%. A scenario
+// that's missing a risk tag defaults to 'high' (fail-closed: an un-tagged
+// scenario counts as risky rather than silently getting the most lenient
+// tolerance).
+//
+// maxFailurePercent is a percentage of the *total E2E count across all
+// three buckets combined*, not of that bucket's own total - e.g. Low
+// risk's 5% is 5% of every E2E scenario, not 5% of just the low-risk ones.
+// Rounded up, with a minimum of 1 once the percentage is above 0% (see
+// computeMaxFailures below) - a fractional "0.57 failures allowed" isn't
+// meaningful, and rounding a small-but-nonzero tolerance down to 0 would
+// make High/Low behave exactly like Critical on a small suite, defeating
+// the point of having three tiers.
 const E2E_RISK_BUCKETS = [
-  { key: 'critical', tag: 'critical', label: 'Critical', maxFailures: 0 },
-  { key: 'high', tag: 'risk-high', label: 'High risk', maxFailures: 2 },
-  { key: 'low', tag: 'risk-low', label: 'Low risk', maxFailures: 5 },
+  { key: 'critical', tag: 'critical', label: 'Critical', maxFailurePercent: 0 },
+  { key: 'high', tag: 'risk-high', label: 'High risk', maxFailurePercent: 1 },
+  { key: 'low', tag: 'risk-low', label: 'Low risk', maxFailurePercent: 5 },
 ];
 const DEFAULT_E2E_RISK = 'high';
+
+function computeMaxFailures(percent, totalE2e) {
+  if (percent <= 0) return 0;
+  return Math.max(1, Math.ceil((percent / 100) * totalE2e));
+}
 
 // @known-issue:TICKET-ID (e.g. @known-issue:REIS-142) marks a scenario with
 // an accepted, ticket-tracked failure - purely a label for traceability, it
@@ -68,7 +82,7 @@ const SECURITY_THRESHOLD_LABEL = '100% pass (0 failed/broken)';
 async function main() {
   const latestByHistoryId = await loadLatestAllureResults();
 
-  const { buckets: e2eBuckets, knownIssues, unknownIssues } = computeE2eBuckets(latestByHistoryId);
+  const { buckets: e2eBuckets, knownIssues, unknownIssues, totalE2e } = computeE2eBuckets(latestByHistoryId);
   const accessibilityLevels = await computeAccessibilityLevels(latestByHistoryId);
   const security = computeSecurity(latestByHistoryId);
 
@@ -83,6 +97,7 @@ async function main() {
       {
         generatedAt,
         overallReady,
+        totalE2e,
         e2eBuckets,
         knownIssues,
         unknownIssues,
@@ -96,14 +111,14 @@ async function main() {
   );
   await writeFile(
     path.join(OUT_DIR, 'index.html'),
-    buildHtmlReport(overallReady, e2eBuckets, knownIssues, unknownIssues, accessibilityLevels, security, generatedAt),
+    buildHtmlReport(overallReady, totalE2e, e2eBuckets, knownIssues, unknownIssues, accessibilityLevels, security, generatedAt),
   );
 
   console.log(overallReady ? 'READY FOR RELEASE' : 'NOT READY FOR RELEASE');
-  console.log('E2E (by risk):');
+  console.log(`E2E (by risk, ${totalE2e} total across all buckets):`);
   for (const b of e2eBuckets) {
     console.log(
-      `  ${b.label}: ${b.passed}/${b.total} passed, ${b.failures} failing (max ${b.maxFailures} allowed) - ${b.ready ? 'OK' : 'FAIL'}`,
+      `  ${b.label}: ${b.passed}/${b.total} passed, ${b.failures} failing (max ${b.maxFailures} allowed - ${b.maxFailurePercent}% of ${totalE2e}) - ${b.ready ? 'OK' : 'FAIL'}`,
     );
   }
   if (knownIssues.length) {
@@ -203,11 +218,13 @@ function computeE2eBuckets(latestByHistoryId) {
     }
   }
 
+  const totalE2e = Object.values(counts).reduce((sum, c) => sum + c.total, 0);
   const buckets = E2E_RISK_BUCKETS.map((b) => {
     const c = counts[b.key];
-    return { ...b, ...c, ready: c.failures <= b.maxFailures };
+    const maxFailures = computeMaxFailures(b.maxFailurePercent, totalE2e);
+    return { ...b, ...c, maxFailures, ready: c.failures <= maxFailures };
   });
-  return { buckets, knownIssues, unknownIssues };
+  return { buckets, knownIssues, unknownIssues, totalE2e };
 }
 
 function computeSecurity(latestByHistoryId) {
@@ -270,7 +287,7 @@ async function computeAccessibilityLevels(latestByHistoryId) {
   });
 }
 
-function buildHtmlReport(overallReady, e2eBuckets, knownIssues, unknownIssues, accessibilityLevels, security, generatedAt) {
+function buildHtmlReport(overallReady, totalE2e, e2eBuckets, knownIssues, unknownIssues, accessibilityLevels, security, generatedAt) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -288,13 +305,13 @@ function buildHtmlReport(overallReady, e2eBuckets, knownIssues, unknownIssues, a
   </header>
 
   <section class="group">
-    <h2>E2E - by risk level</h2>
+    <h2>E2E - by risk level <span class="muted">(${totalE2e} total across all buckets)</span></h2>
     <table class="suite-table">
       <thead>
         <tr><th>Risk</th><th>Total</th><th>Passed</th><th>Failed</th><th>Max allowed</th><th>Status</th></tr>
       </thead>
       <tbody>
-        ${e2eBuckets.map(renderE2eRow).join('\n')}
+        ${e2eBuckets.map((b) => renderE2eRow(b, totalE2e)).join('\n')}
       </tbody>
     </table>
     ${unknownIssues.length ? renderUnknownIssues(unknownIssues) : ''}
@@ -339,7 +356,7 @@ function buildHtmlReport(overallReady, e2eBuckets, knownIssues, unknownIssues, a
 </html>`;
 }
 
-function renderE2eRow(b) {
+function renderE2eRow(b, totalE2e) {
   const noResults = b.total === 0;
   const statusClass = noResults ? 'fail' : b.ready ? 'pass' : 'fail';
   const statusLabel = noResults ? 'No results' : b.ready ? 'OK' : 'Fail';
@@ -349,7 +366,7 @@ function renderE2eRow(b) {
         <td>${b.total}</td>
         <td>${b.passed}</td>
         <td>${b.failures}</td>
-        <td>${b.maxFailures}</td>
+        <td>${b.maxFailures} <span class="muted">(${b.maxFailurePercent}% of ${totalE2e})</span></td>
         <td><span class="badge badge-${statusClass}">${statusLabel}</span></td>
       </tr>`;
 }
@@ -477,6 +494,9 @@ h1 { margin: 6px 0 12px; font-size: 28px; }
 .lede { margin: 0; color: var(--muted); }
 .group { margin-top: 28px; }
 .group h2 { font-size: 16px; margin: 0 0 10px; }
+.muted { color: var(--muted); }
+.group h2 .muted { font-size: 13px; font-weight: 400; }
+td .muted { font-size: 12px; }
 .suite-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
 .suite-table th, .suite-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 14px; }
 .suite-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
