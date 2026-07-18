@@ -27,26 +27,42 @@ const EXCLUDED_SUITES = [
 
 // Every E2E scenario is expected to carry exactly one of these (see any
 // features/*.feature file) - @critical must always pass, @risk-high/
-// @risk-low get a small failure allowance instead of the usual 100%. A
-// scenario that's missing a risk tag defaults to 'high' (fail-closed: an
-// un-tagged scenario counts as risky rather than silently getting the most
-// lenient tolerance).
+// @risk-low get a failure allowance instead of the usual 100%. A scenario
+// that's missing a risk tag defaults to 'high' (fail-closed: an un-tagged
+// scenario counts as risky rather than silently getting the most lenient
+// tolerance).
+//
+// maxFailurePercent is a percentage of the *total E2E count across all
+// three buckets combined*, not of that bucket's own total - e.g. Low
+// risk's 5% is 5% of every E2E scenario, not 5% of just the low-risk ones.
+// Rounded up, with a minimum of 1 once the percentage is above 0% (see
+// computeMaxFailures below) - a fractional "0.57 failures allowed" isn't
+// meaningful, and rounding a small-but-nonzero tolerance down to 0 would
+// make High/Low behave exactly like Critical on a small suite, defeating
+// the point of having three tiers.
 const E2E_RISK_BUCKETS = [
-  { key: 'critical', tag: 'critical', label: 'Critical', maxFailures: 0 },
-  { key: 'high', tag: 'risk-high', label: 'High risk', maxFailures: 2 },
-  { key: 'low', tag: 'risk-low', label: 'Low risk', maxFailures: 5 },
+  { key: 'critical', tag: 'critical', label: 'Critical', maxFailurePercent: 0 },
+  { key: 'high', tag: 'risk-high', label: 'High risk', maxFailurePercent: 1 },
+  { key: 'low', tag: 'risk-low', label: 'Low risk', maxFailurePercent: 5 },
 ];
 const DEFAULT_E2E_RISK = 'high';
 
+function computeMaxFailures(percent, totalE2e) {
+  if (percent <= 0) return 0;
+  return Math.max(1, Math.ceil((percent / 100) * totalE2e));
+}
+
 // @known-issue:TICKET-ID (e.g. @known-issue:REIS-142) marks a scenario with
-// an accepted, ticket-tracked failure - it still counts in its risk
-// bucket's total, but a failure there doesn't consume that bucket's failure
-// allowance (it's listed separately below instead, with the ticket
-// reference, so it stays visible rather than silently not counting against
-// anything). Previously @external-api scenarios were blanket-excluded from
-// the gate entirely; that's gone now - they carry a normal risk tag like
-// everything else, and only get an exemption once there's an actual,
-// tracked failure to point at (see ai/release-readiness.md).
+// an accepted, ticket-tracked failure - purely a label for traceability, it
+// does NOT exempt the failure from its risk bucket's failure count or the
+// ready/not-ready verdict (a known issue in @critical, for instance, still
+// blocks release - it isn't a free pass, it just says "this one already has
+// a ticket"). Every failing E2E scenario shows up in exactly one of two
+// tables below the risk-bucket summary: "Known issues" (has the tag, with
+// its ticket reference) or "Unknown issues" (doesn't - something new/
+// unexpected, needs triage). Previously @external-api scenarios were
+// blanket-excluded from the gate entirely; that's gone now - they carry a
+// normal risk tag like everything else (see ai/release-readiness.md).
 const KNOWN_ISSUE_TAG_PREFIX = 'known-issue:';
 
 // Mirrors pageobjects/_shared/accessibility.ts's own WCAG_TAGS/GATE_IMPACTS/
@@ -66,7 +82,7 @@ const SECURITY_THRESHOLD_LABEL = '100% pass (0 failed/broken)';
 async function main() {
   const latestByHistoryId = await loadLatestAllureResults();
 
-  const { buckets: e2eBuckets, knownIssues } = computeE2eBuckets(latestByHistoryId);
+  const { buckets: e2eBuckets, knownIssues, unknownIssues, totalE2e } = computeE2eBuckets(latestByHistoryId);
   const accessibilityLevels = await computeAccessibilityLevels(latestByHistoryId);
   const security = computeSecurity(latestByHistoryId);
 
@@ -78,27 +94,43 @@ async function main() {
   await writeFile(
     path.join(OUT_DIR, 'data.json'),
     JSON.stringify(
-      { generatedAt, overallReady, e2eBuckets, knownIssues, accessibilityLevels, security, excludedSuites: EXCLUDED_SUITES },
+      {
+        generatedAt,
+        overallReady,
+        totalE2e,
+        e2eBuckets,
+        knownIssues,
+        unknownIssues,
+        accessibilityLevels,
+        security,
+        excludedSuites: EXCLUDED_SUITES,
+      },
       null,
       2,
     ),
   );
   await writeFile(
     path.join(OUT_DIR, 'index.html'),
-    buildHtmlReport(overallReady, e2eBuckets, knownIssues, accessibilityLevels, security, generatedAt),
+    buildHtmlReport(overallReady, totalE2e, e2eBuckets, knownIssues, unknownIssues, accessibilityLevels, security, generatedAt),
   );
 
   console.log(overallReady ? 'READY FOR RELEASE' : 'NOT READY FOR RELEASE');
-  console.log('E2E (by risk):');
+  console.log(`E2E (by risk, ${totalE2e} total across all buckets):`);
   for (const b of e2eBuckets) {
     console.log(
-      `  ${b.label}: ${b.passed}/${b.total} passed, ${b.failures} failing (max ${b.maxFailures} allowed) - ${b.ready ? 'OK' : 'FAIL'}`,
+      `  ${b.label}: ${b.passed}/${b.total} passed, ${b.failures} failing (max ${b.maxFailures} allowed - ${b.maxFailurePercent}% of ${totalE2e}) - ${b.ready ? 'OK' : 'FAIL'}`,
     );
   }
   if (knownIssues.length) {
-    console.log('Known issues (exempted from the failure count above):');
+    console.log('Known issues (still count toward the failure counts above):');
     for (const k of knownIssues) {
       console.log(`  [${k.ticket}] ${k.name} (${k.riskLabel}) - ${k.status}`);
+    }
+  }
+  if (unknownIssues.length) {
+    console.log('Unknown issues (unexpected failures, no @known-issue tag yet):');
+    for (const u of unknownIssues) {
+      console.log(`  ${u.name} (${u.riskLabel})`);
     }
   }
   console.log('Accessibility (by WCAG level):');
@@ -159,12 +191,14 @@ function computeE2eBuckets(latestByHistoryId) {
     E2E_RISK_BUCKETS.map((b) => [b.key, { total: 0, passed: 0, failures: 0 }]),
   );
   const knownIssues = [];
+  const unknownIssues = [];
 
   for (const test of latestByHistoryId.values()) {
     if (test.parentSuite !== 'E2E') continue;
 
     const bucket = E2E_RISK_BUCKETS.find((b) => test.tags.includes(b.tag));
     const key = bucket?.key ?? DEFAULT_E2E_RISK;
+    const riskLabel = bucket?.label ?? 'High risk';
     const ticket = knownIssueTicket(test.tags);
 
     counts[key].total++;
@@ -173,21 +207,24 @@ function computeE2eBuckets(latestByHistoryId) {
       // A @known-issue scenario that's now passing means the underlying
       // problem may be fixed - surfaced so the tag gets cleaned up rather
       // than silently staying on a scenario that no longer needs it.
-      if (ticket) knownIssues.push({ name: test.name, ticket, riskLabel: bucket?.label ?? 'High risk', status: 'passing' });
+      if (ticket) knownIssues.push({ name: test.name, ticket, riskLabel, status: 'passing' });
     } else if (isFailure(test.status)) {
+      counts[key].failures++;
       if (ticket) {
-        knownIssues.push({ name: test.name, ticket, riskLabel: bucket?.label ?? 'High risk', status: 'failing' });
+        knownIssues.push({ name: test.name, ticket, riskLabel, status: 'failing' });
       } else {
-        counts[key].failures++;
+        unknownIssues.push({ name: test.name, riskLabel, status: 'failing' });
       }
     }
   }
 
+  const totalE2e = Object.values(counts).reduce((sum, c) => sum + c.total, 0);
   const buckets = E2E_RISK_BUCKETS.map((b) => {
     const c = counts[b.key];
-    return { ...b, ...c, ready: c.failures <= b.maxFailures };
+    const maxFailures = computeMaxFailures(b.maxFailurePercent, totalE2e);
+    return { ...b, ...c, maxFailures, ready: c.failures <= maxFailures };
   });
-  return { buckets, knownIssues };
+  return { buckets, knownIssues, unknownIssues, totalE2e };
 }
 
 function computeSecurity(latestByHistoryId) {
@@ -250,7 +287,7 @@ async function computeAccessibilityLevels(latestByHistoryId) {
   });
 }
 
-function buildHtmlReport(overallReady, e2eBuckets, knownIssues, accessibilityLevels, security, generatedAt) {
+function buildHtmlReport(overallReady, totalE2e, e2eBuckets, knownIssues, unknownIssues, accessibilityLevels, security, generatedAt) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -268,15 +305,16 @@ function buildHtmlReport(overallReady, e2eBuckets, knownIssues, accessibilityLev
   </header>
 
   <section class="group">
-    <h2>E2E - by risk level</h2>
+    <h2>E2E - by risk level <span class="muted">(${totalE2e} total across all buckets)</span></h2>
     <table class="suite-table">
       <thead>
         <tr><th>Risk</th><th>Total</th><th>Passed</th><th>Failed</th><th>Max allowed</th><th>Status</th></tr>
       </thead>
       <tbody>
-        ${e2eBuckets.map(renderE2eRow).join('\n')}
+        ${e2eBuckets.map((b) => renderE2eRow(b, totalE2e)).join('\n')}
       </tbody>
     </table>
+    ${unknownIssues.length ? renderUnknownIssues(unknownIssues) : ''}
     ${knownIssues.length ? renderKnownIssues(knownIssues) : ''}
   </section>
 
@@ -318,7 +356,7 @@ function buildHtmlReport(overallReady, e2eBuckets, knownIssues, accessibilityLev
 </html>`;
 }
 
-function renderE2eRow(b) {
+function renderE2eRow(b, totalE2e) {
   const noResults = b.total === 0;
   const statusClass = noResults ? 'fail' : b.ready ? 'pass' : 'fail';
   const statusLabel = noResults ? 'No results' : b.ready ? 'OK' : 'Fail';
@@ -328,7 +366,7 @@ function renderE2eRow(b) {
         <td>${b.total}</td>
         <td>${b.passed}</td>
         <td>${b.failures}</td>
-        <td>${b.maxFailures}</td>
+        <td>${b.maxFailures} <span class="muted">(${b.maxFailurePercent}% of ${totalE2e})</span></td>
         <td><span class="badge badge-${statusClass}">${statusLabel}</span></td>
       </tr>`;
 }
@@ -352,8 +390,8 @@ function renderA11yRow(l) {
 
 function renderKnownIssues(knownIssues) {
   return `
-    <div class="known-issues">
-      <h3>Known issues (excluded from the failure counts above)</h3>
+    <div class="issue-table">
+      <h3>Known issues <span class="muted">(still count toward Failed above)</span></h3>
       <table class="suite-table">
         <thead>
           <tr><th>Ticket</th><th>Scenario</th><th>Risk</th><th>Status</th></tr>
@@ -373,6 +411,30 @@ function renderKnownIssueRow(k) {
         <td>${escapeHtml(k.name)}</td>
         <td>${escapeHtml(k.riskLabel)}</td>
         <td><span class="badge badge-${isStale ? 'stale' : 'known'}">${isStale ? 'Now passing - remove tag?' : 'Still failing'}</span></td>
+      </tr>`;
+}
+
+function renderUnknownIssues(unknownIssues) {
+  return `
+    <div class="issue-table">
+      <h3>Unknown issues <span class="muted">(no @known-issue tag - needs triage)</span></h3>
+      <table class="suite-table">
+        <thead>
+          <tr><th>Scenario</th><th>Risk</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          ${unknownIssues.map(renderUnknownIssueRow).join('\n')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderUnknownIssueRow(u) {
+  return `
+      <tr class="fail">
+        <td>${escapeHtml(u.name)}</td>
+        <td>${escapeHtml(u.riskLabel)}</td>
+        <td><span class="badge badge-fail">Failing</span></td>
       </tr>`;
 }
 
@@ -432,6 +494,9 @@ h1 { margin: 6px 0 12px; font-size: 28px; }
 .lede { margin: 0; color: var(--muted); }
 .group { margin-top: 28px; }
 .group h2 { font-size: 16px; margin: 0 0 10px; }
+.muted { color: var(--muted); }
+.group h2 .muted { font-size: 13px; font-weight: 400; }
+td .muted { font-size: 12px; }
 .suite-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
 .suite-table th, .suite-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 14px; }
 .suite-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
@@ -443,10 +508,11 @@ h1 { margin: 6px 0 12px; font-size: 28px; }
 .badge-fail { background: var(--fail-bg); color: var(--fail); }
 .badge-known { background: var(--warn-bg); color: var(--warn); }
 .badge-stale { background: var(--warn-bg); color: var(--warn); }
-.known-issues { margin-top: 14px; }
-.known-issues h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 8px; }
-.known-issues tr.known td:first-child, .known-issues tr.stale td:first-child { border-left: 4px solid var(--warn); }
-.known-issues code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
+.issue-table { margin-top: 14px; }
+.issue-table h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 8px; }
+.issue-table h3 .muted { text-transform: none; letter-spacing: normal; font-weight: 400; }
+.issue-table tr.known td:first-child, .issue-table tr.stale td:first-child { border-left: 4px solid var(--warn); }
+.issue-table code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
 .excluded { margin-top: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
 .excluded h2 { margin: 0 0 8px; font-size: 16px; }
 .excluded ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
