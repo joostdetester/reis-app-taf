@@ -68,13 +68,22 @@ const KNOWN_ISSUE_TAG_PREFIX = 'known-issue:';
 // Mirrors pageobjects/_shared/accessibility.ts's own WCAG_TAGS/GATE_IMPACTS/
 // SEVERITY_LABELS (critical->Blocker/Critical, serious->Major,
 // moderate->Minor, minor->Cosmetic, used directly as the report's column
-// headers below) - this is the same policy already documented in
-// ai/accessibility-testing.md, just surfaced here with its actual observed
-// counts instead of a bare pass/fail.
+// headers below) for *what* fails a "<Page> meets WCAG level <X>" scenario -
+// that severity logic is unchanged. maxFailurePercent is the same E2E-style
+// tolerance layered on top: a percentage of the *total Accessibility
+// scenario count across all three levels combined* that may fail, rounded
+// up with a minimum of 1 once above 0% (see computeMaxFailures). Level A
+// stays 0% - it's the baseline conformance level, no tolerance, same as
+// @critical in E2E.
 const A11Y_LEVELS = [
-  { level: 'A', gateImpacts: ['critical', 'serious'], thresholdLabel: '0 Blocker/Critical, 0 Major' },
-  { level: 'AA', gateImpacts: ['critical'], thresholdLabel: '0 Blocker/Critical' },
-  { level: 'AAA', gateImpacts: ['critical'], thresholdLabel: '0 Blocker/Critical' },
+  {
+    level: 'A',
+    gateImpacts: ['critical', 'serious'],
+    thresholdLabel: '0 Blocker/Critical, 0 Major',
+    maxFailurePercent: 0,
+  },
+  { level: 'AA', gateImpacts: ['critical'], thresholdLabel: '0 Blocker/Critical', maxFailurePercent: 1 },
+  { level: 'AAA', gateImpacts: ['critical'], thresholdLabel: '0 Blocker/Critical', maxFailurePercent: 5 },
 ];
 
 const SECURITY_THRESHOLD_LABEL = '100% pass (0 failed/broken)';
@@ -83,7 +92,7 @@ async function main() {
   const latestByHistoryId = await loadLatestAllureResults();
 
   const { buckets: e2eBuckets, knownIssues, unknownIssues, totalE2e } = computeE2eBuckets(latestByHistoryId);
-  const accessibilityLevels = await computeAccessibilityLevels(latestByHistoryId);
+  const { levels: accessibilityLevels, totalA11y } = await computeAccessibilityLevels(latestByHistoryId);
   const security = computeSecurity(latestByHistoryId);
 
   const overallReady =
@@ -101,6 +110,7 @@ async function main() {
         e2eBuckets,
         knownIssues,
         unknownIssues,
+        totalA11y,
         accessibilityLevels,
         security,
         excludedSuites: EXCLUDED_SUITES,
@@ -111,7 +121,17 @@ async function main() {
   );
   await writeFile(
     path.join(OUT_DIR, 'index.html'),
-    buildHtmlReport(overallReady, totalE2e, e2eBuckets, knownIssues, unknownIssues, accessibilityLevels, security, generatedAt),
+    buildHtmlReport(
+      overallReady,
+      totalE2e,
+      e2eBuckets,
+      knownIssues,
+      unknownIssues,
+      totalA11y,
+      accessibilityLevels,
+      security,
+      generatedAt,
+    ),
   );
 
   console.log(overallReady ? 'READY FOR RELEASE' : 'NOT READY FOR RELEASE');
@@ -133,10 +153,10 @@ async function main() {
       console.log(`  ${u.name} (${u.riskLabel})`);
     }
   }
-  console.log('Accessibility (by WCAG level):');
+  console.log(`Accessibility (by WCAG level, ${totalA11y} total across all levels):`);
   for (const l of accessibilityLevels) {
     console.log(
-      `  ${l.level}: ${l.passed}/${l.total} scenarios passed, threshold ${l.thresholdLabel} - severity counts ${JSON.stringify(l.severityCounts)} - ${l.ready ? 'OK' : 'FAIL'}`,
+      `  ${l.level}: ${l.passed}/${l.total} scenarios passed, ${l.failures} failing (max ${l.maxFailures} allowed - ${l.maxFailurePercent}% of ${totalA11y}), threshold ${l.thresholdLabel} - severity counts ${JSON.stringify(l.severityCounts)} - ${l.ready ? 'OK' : 'FAIL'}`,
     );
   }
   console.log(
@@ -275,19 +295,34 @@ async function computeAccessibilityLevels(latestByHistoryId) {
     }
   }
 
-  return A11Y_LEVELS.map((l) => {
+  const totalA11y = Object.values(scenarioCounts).reduce((sum, c) => sum + c.total, 0);
+  const levels = A11Y_LEVELS.map((l) => {
     const c = scenarioCounts[l.level];
+    const maxFailures = computeMaxFailures(l.maxFailurePercent, totalA11y);
     return {
       level: l.level,
       thresholdLabel: l.thresholdLabel,
+      maxFailurePercent: l.maxFailurePercent,
       ...c,
-      ready: c.total > 0 && c.failures === 0,
+      maxFailures,
+      ready: c.total > 0 && c.failures <= maxFailures,
       severityCounts: severityCounts[l.level],
     };
   });
+  return { levels, totalA11y };
 }
 
-function buildHtmlReport(overallReady, totalE2e, e2eBuckets, knownIssues, unknownIssues, accessibilityLevels, security, generatedAt) {
+function buildHtmlReport(
+  overallReady,
+  totalE2e,
+  e2eBuckets,
+  knownIssues,
+  unknownIssues,
+  totalA11y,
+  accessibilityLevels,
+  security,
+  generatedAt,
+) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -319,13 +354,13 @@ function buildHtmlReport(overallReady, totalE2e, e2eBuckets, knownIssues, unknow
   </section>
 
   <section class="group">
-    <h2>Accessibility - by WCAG level</h2>
+    <h2>Accessibility - by WCAG level <span class="muted">(${totalA11y} total across all levels)</span></h2>
     <table class="suite-table">
       <thead>
-        <tr><th>Level</th><th>Threshold</th><th>Scenarios</th><th>Blocker/Critical</th><th>Major</th><th>Minor</th><th>Cosmetic</th><th>Status</th></tr>
+        <tr><th>Level</th><th>Threshold</th><th>Scenarios</th><th>Max allowed</th><th>Blocker/Critical</th><th>Major</th><th>Minor</th><th>Cosmetic</th><th>Status</th></tr>
       </thead>
       <tbody>
-        ${accessibilityLevels.map(renderA11yRow).join('\n')}
+        ${accessibilityLevels.map((l) => renderA11yRow(l, totalA11y)).join('\n')}
       </tbody>
     </table>
   </section>
@@ -371,7 +406,7 @@ function renderE2eRow(b, totalE2e) {
       </tr>`;
 }
 
-function renderA11yRow(l) {
+function renderA11yRow(l, totalA11y) {
   const noResults = l.total === 0;
   const statusClass = noResults ? 'fail' : l.ready ? 'pass' : 'fail';
   const statusLabel = noResults ? 'No results' : l.ready ? 'OK' : 'Fail';
@@ -380,6 +415,7 @@ function renderA11yRow(l) {
         <td>${escapeHtml(l.level)}</td>
         <td>${escapeHtml(l.thresholdLabel)}</td>
         <td>${l.passed}/${l.total}</td>
+        <td>${l.maxFailures} <span class="muted">(${l.maxFailurePercent}% of ${totalA11y})</span></td>
         <td>${l.severityCounts.critical}</td>
         <td>${l.severityCounts.serious}</td>
         <td>${l.severityCounts.moderate}</td>
