@@ -3,7 +3,7 @@ title: Release Readiness
 description: The release-readiness CI gate - what it checks, its thresholds per suite, and how to read the published report.
 owner: team-qa
 tags: [testing, ci, release]
-version: 2.0
+version: 3.0
 ---
 
 # Release Readiness
@@ -25,9 +25,20 @@ file):
 
 | Tag | Risk level | Max failures allowed |
 | --- | --- | --- |
-| `@critical` | Critical | 0 |
-| `@risk-high` | High | 2 |
-| `@risk-low` | Low | 5 |
+| `@critical` | Critical | 0% |
+| `@risk-high` | High | 1% |
+| `@risk-low` | Low | 5% |
+
+Each percentage is of the **total E2E count across all three buckets
+combined**, not of that bucket's own total - e.g. Low risk's 5% is 5% of
+every E2E scenario, not 5% of just the low-risk ones. Rounded up, with a
+minimum of 1 once the percentage is above 0% (`computeMaxFailures` in
+`scripts/check-release-readiness.mjs`) - a fractional "0.57 failures
+allowed" isn't meaningful, and rounding a small-but-nonzero tolerance down
+to 0 would make High/Low behave exactly like Critical on today's suite
+size, defeating the point of having three tiers. The report shows both the
+resulting number and the percentage it came from (e.g. "3 (5% of 57)"), so
+the actual tolerance is never a mystery number.
 
 A scenario with none of these tags defaults to **High** (fail-closed - an
 untagged scenario counts as risky rather than silently getting the most
@@ -128,6 +139,15 @@ report. Deliberately folded into `test-summary`'s existing single Pages
 deploy rather than deploying separately - see the note above `test-summary`
 in `ci.yml` about PR-triggered deploys racing and wiping the real published
 site; a second deploy target would risk the same failure mode.
+
+The `release-readiness` job itself also shows a URL badge in the Actions
+UI (via its own `environment:` block, `release-readiness-<branch>` -
+distinct from `test-summary`'s `github-pages-<branch>` so the two don't
+collide), pointing at the same `<branch>/release-readiness/` URL. Caveat:
+this job runs *before* `test-summary` actually deploys, so at the moment
+it finishes, that link still shows the *previous* run's report for a few
+seconds until `test-summary` (later in the same workflow run) publishes
+this run's - not stale in any lasting way, just not instant.
 
 Retries: Playwright retries a failing test (`playwright.config.ts`); each
 attempt writes its own raw Allure result sharing the same `historyId` - the
