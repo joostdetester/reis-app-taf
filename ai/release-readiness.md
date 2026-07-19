@@ -87,25 +87,44 @@ sections too if that's ever needed there.
 
 ## Accessibility - by WCAG level
 
-Mirrors the same per-level gate already documented in
+What makes an individual `<Page> meets WCAG level <X>` scenario fail is
+unchanged - still the same per-level severity gate documented in
 `ai/accessibility-testing.md` (`pageobjects/_shared/accessibility.ts`'s
-`GATE_IMPACTS`) - this doesn't introduce a new policy, it surfaces the
-existing one with its actual counts instead of a bare pass/fail:
+`GATE_IMPACTS`):
 
-| Level | Threshold |
+| Level | A scenario fails when it finds |
 | --- | --- |
-| A | 0 Blocker/Critical, 0 Major |
-| AA | 0 Blocker/Critical (Major allowed) |
-| AAA | 0 Blocker/Critical (Major allowed) |
+| A | any Blocker/Critical, or any Major |
+| AA | any Blocker/Critical (Major allowed) |
+| AAA | any Blocker/Critical (Major allowed) |
+
+What's new is the tolerance for *how many* scenarios are allowed to fail
+before the level itself is not-ready, same percentage model as E2E above:
+
+| Level | Max failing scenarios allowed |
+| --- | --- |
+| A | 0% |
+| AA | 1% |
+| AAA | 5% |
+
+Each percentage is of the **total Accessibility scenario count across all
+three levels combined**, not of that level's own total - the same
+combined-total basis E2E uses, for the same reason (a handful of scenarios
+per level would otherwise round every nonzero percentage down to the same
+number). Rounded up, with a minimum of 1 once the percentage is above 0%
+(`computeMaxFailures`, shared with the E2E calculation). Level A stays at a
+hard 0% - a foundational-accessibility regression is always release-
+blocking, no tolerance.
 
 The report shows, per level: how many `<Page> meets WCAG level <X>`
 scenarios passed (from Allure - this is what actually gates the
-`accessibility` job), plus the full Blocker/Critical/Major/Minor/Cosmetic
-severity-count breakdown (from the raw axe scan data in
-`a11y-report-data/`, uploaded as its own CI artifact) - so a level can show
-"OK" while still surfacing non-blocking findings (e.g. AAA passing with a
-couple of Major findings that don't gate it), not just a checkmark with no
-detail.
+`accessibility` job), how many failing scenarios are allowed before the
+level flips not-ready (e.g. "1 (1% of 62)"), plus the full Blocker/Critical/
+Major/Minor/Cosmetic severity-count breakdown (from the raw axe scan data
+in `a11y-report-data/`, uploaded as its own CI artifact) - so a level can
+show "OK" while still surfacing non-blocking findings (e.g. AAA passing
+with a couple of Major findings that don't gate it), not just a checkmark
+with no detail.
 
 ## Security
 
