@@ -442,7 +442,6 @@ function buildHtmlReport(
         ${accessibilityLevels.map((l) => renderA11yRow(l)).join('\n')}
       </tbody>
     </table>
-    <p class="muted footnote">"Scenarios"/"Hard block" (left) reflects the unchanged per-scenario gate (<code>GATE_IMPACTS</code>) - any Blocker/Critical finding always fails its scenario and always blocks the level's Status, zero tolerance, no percentage, at every level. "Blocker/Critical"/"Major"/"Minor"/"Cosmetic" (right) count distinct violation *types* axe found per scan at that level - already deduplicated by axe itself (a rule flagging 83 elements on one page is one entry, not 83; the same rule recurring on a different page, or in a different browser's scan of the same page, counts again there). "Non-critical total" is simply Major+Minor+Cosmetic added together, shown so it sits right next to "Max allowed" in the same unit - the actual second readiness check: that total may not exceed a percentage of *that level's own* scenario count (not the combined total across levels). A level can have every individual scenario pass and still be not-ready here once its non-critical volume crosses that level's own ceiling. Blocker/Critical is never counted toward "Non-critical total"/"Max allowed" - it's covered entirely by "Hard block" on the left. Level A's percentage stays a hard 0% regardless.</p>
   </section>
 
   <section class="group">
@@ -613,7 +612,6 @@ h1 { margin: 6px 0 12px; font-size: 28px; }
 .group { margin-top: 28px; }
 .group h2 { font-size: 16px; margin: 0 0 10px; }
 .muted { color: var(--muted); }
-.footnote { margin: 10px 2px 0; font-size: 12px; }
 .group h2 .muted { font-size: 13px; font-weight: 400; }
 td .muted { font-size: 12px; }
 .suite-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
