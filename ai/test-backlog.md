@@ -39,12 +39,12 @@ Bron: live-verkenning van `BASE_URL=https://reis-bf84496b20.vercel.app` op 2026-
 
 ## Trip overview / Tijdlijn (`#/trip`)
 
-- 📝 Tijdlijn (default view) toont alle reisdagen chronologisch
-- 📝 Wisselen naar "Bestemmingen"-view (`?view=destinations`) groepeert per bestemming/regio
-- 📝 Wisselen naar "Kalender"-view (`?view=calendar`) toont compacte datum→bestemming lijst
-- 📝 View-keuze blijft behouden na page refresh (query param)
-- 📝 "Top activiteiten op GetYourGuide"-link per bestemming (Bestemmingen-view)
-- 📝 Zoekveld filtert de tijdlijn live op een geldige zoekterm (bv. "El Nido")
+- ✅ Tijdlijn (default view) toont alle reisdagen chronologisch
+- ✅ Wisselen naar "Bestemmingen"-view (`?view=destinations`) groepeert per bestemming/regio
+- ✅ Wisselen naar "Kalender"-view (`?view=calendar`) toont compacte datum→bestemming lijst
+- ✅ View-keuze blijft behouden na page refresh (query param)
+- ✅ "Top activiteiten op GetYourGuide"-link per bestemming (Bestemmingen-view)
+- ✅ Zoekveld filtert de tijdlijn live op een geldige zoekterm (bv. "El Nido")
 - ❓ Zoekveld bij een zoekterm zonder resultaten — moet nog bevestigd worden of er een expliciete "geen resultaten"-melding hoort te zijn (nu leek de resultatenlijst gewoon leeg)
 
 ## Hotels (`#/hotels`)
