@@ -172,16 +172,13 @@ async function main() {
   if (knownIssues.length) {
     console.log('Known issues (still count toward the failure counts above):');
     for (const k of knownIssues) {
-      const trendLabel = k.trend
-        ? ` - success rate ${k.trend.successRatePercent}% (${k.trend.passed}/${k.trend.total}), streak ${k.trend.streak}${k.trend.streakSinceVersion ? ` since reis-app ${k.trend.streakSinceVersion}` : ''}`
-        : '';
-      console.log(`  [${k.ticket}] ${k.name} (${k.riskLabel}) - ${k.status}${trendLabel}`);
+      console.log(`  [${k.ticket}] ${k.name} (${k.riskLabel}) - ${k.status}${formatTrendLogLabel(k.trend)}`);
     }
   }
   if (unknownIssues.length) {
     console.log('Unknown issues (unexpected failures, no @known-issue tag yet):');
     for (const u of unknownIssues) {
-      console.log(`  ${u.name} (${u.riskLabel})`);
+      console.log(`  ${u.name} (${u.riskLabel})${formatTrendLogLabel(u.trend)}`);
     }
   }
   console.log(`Accessibility (by WCAG level, ${totalA11y} scenarios across all levels):`);
@@ -298,7 +295,7 @@ function resolveReisAppCommitAt(timeline, timestampMs) {
 // available) the streak's starting reis-app version, for a single known
 // issue - purely additional context alongside the hard pass/fail count
 // already gating the release, not itself part of the gate.
-function buildKnownIssueTrend(historyId, allureHistory, reisAppTimeline) {
+function buildIssueTrend(historyId, allureHistory, reisAppTimeline) {
   const entry = historyId ? allureHistory?.[historyId] : undefined;
   if (!entry?.items?.length) return null;
 
@@ -330,6 +327,12 @@ function buildKnownIssueTrend(historyId, allureHistory, reisAppTimeline) {
   };
 }
 
+function formatTrendLogLabel(trend) {
+  if (!trend) return '';
+  const since = trend.streakSinceVersion ? ` since reis-app ${trend.streakSinceVersion}` : '';
+  return ` - success rate ${trend.successRatePercent}% (${trend.passed}/${trend.total}), streak ${trend.streak}${since}`;
+}
+
 function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline) {
   const counts = Object.fromEntries(
     E2E_RISK_BUCKETS.map((b) => [b.key, { total: 0, passed: 0, failures: 0 }]),
@@ -357,7 +360,7 @@ function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline) {
           ticket,
           riskLabel,
           status: 'passing',
-          trend: buildKnownIssueTrend(test.historyId, allureHistory, reisAppTimeline),
+          trend: buildIssueTrend(test.historyId, allureHistory, reisAppTimeline),
         });
       }
     } else if (isFailure(test.status)) {
@@ -368,10 +371,15 @@ function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline) {
           ticket,
           riskLabel,
           status: 'failing',
-          trend: buildKnownIssueTrend(test.historyId, allureHistory, reisAppTimeline),
+          trend: buildIssueTrend(test.historyId, allureHistory, reisAppTimeline),
         });
       } else {
-        unknownIssues.push({ name: test.name, riskLabel, status: 'failing' });
+        unknownIssues.push({
+          name: test.name,
+          riskLabel,
+          status: 'failing',
+          trend: buildIssueTrend(test.historyId, allureHistory, reisAppTimeline),
+        });
       }
     }
   }
@@ -647,10 +655,10 @@ function renderKnownIssueRow(k) {
         <td><code>${escapeHtml(k.ticket)}</code></td>
         <td>${escapeHtml(k.name)}</td>
         <td>${escapeHtml(k.riskLabel)}</td>
-        <td>${renderKnownIssueTrendSummary(k.trend)}</td>
+        <td>${renderIssueTrendSummary(k.trend)}</td>
         <td><span class="badge badge-${isStale ? 'stale' : 'known'}">${isStale ? 'Now passing - remove tag?' : 'Still failing'}</span></td>
       </tr>`;
-  const details = k.trend ? renderKnownIssueTrendDetails(k.trend) : '';
+  const details = k.trend ? renderIssueTrendDetails(k.trend) : '';
   return details ? `${row}\n      <tr class="${isStale ? 'stale' : 'known'}"><td colspan="5">${details}</td></tr>` : row;
 }
 
@@ -658,7 +666,7 @@ function renderKnownIssueRow(k) {
 // retention window (20 runs), not the full lifetime of the scenario, so
 // this reads as "recently" rather than an all-time statistic that never
 // meaningfully changes once a ticket's been open a while.
-function renderKnownIssueTrendSummary(trend) {
+function renderIssueTrendSummary(trend) {
   if (!trend) return '<span class="muted">No history yet</span>';
   const since = trend.streakSinceVersion
     ? `, since reis-app <code>${escapeHtml(trend.streakSinceVersion)}</code>`
@@ -667,7 +675,7 @@ function renderKnownIssueTrendSummary(trend) {
   return `${trend.successRatePercent}% <span class="muted">(${trend.passed}/${trend.total})</span><br /><span class="muted">${streakLabel}</span>`;
 }
 
-function renderKnownIssueTrendDetails(trend) {
+function renderIssueTrendDetails(trend) {
   const rows = trend.runs
     .map(
       (run) => `
@@ -694,7 +702,7 @@ function renderUnknownIssues(unknownIssues) {
       <h3>Unknown issues <span class="muted">(no @known-issue tag - needs triage)</span></h3>
       <table class="suite-table">
         <thead>
-          <tr><th>Scenario</th><th>Risk</th><th>Status</th></tr>
+          <tr><th>Scenario</th><th>Risk</th><th>Success rate</th><th>Status</th></tr>
         </thead>
         <tbody>
           ${unknownIssues.map(renderUnknownIssueRow).join('\n')}
@@ -704,12 +712,15 @@ function renderUnknownIssues(unknownIssues) {
 }
 
 function renderUnknownIssueRow(u) {
-  return `
+  const row = `
       <tr class="fail">
         <td>${escapeHtml(u.name)}</td>
         <td>${escapeHtml(u.riskLabel)}</td>
+        <td>${renderIssueTrendSummary(u.trend)}</td>
         <td><span class="badge badge-fail">Failing</span></td>
       </tr>`;
+  const details = u.trend ? renderIssueTrendDetails(u.trend) : '';
+  return details ? `${row}\n      <tr class="fail"><td colspan="4">${details}</td></tr>` : row;
 }
 
 function renderExcluded() {

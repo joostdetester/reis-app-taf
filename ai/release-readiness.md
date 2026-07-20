@@ -88,12 +88,14 @@ sections too if that's ever needed there.
 #### Success-rate trend
 
 Purely informational context alongside the hard pass/fail count above, not
-part of the gate itself - a known issue that's actually flaky (sometimes
+part of the gate itself - a scenario that's actually flaky (sometimes
 passes, sometimes fails) reads very differently from one that's been
 consistently broken for weeks, and the plain "Still failing" / "Now passing"
-status alone doesn't distinguish the two.
+status alone doesn't distinguish the two. Shown on both Known and Unknown
+issues (same underlying data either way - an unknown issue just doesn't
+have a ticket reference yet).
 
-Each known issue's row shows a success rate (e.g. "85% (17/20)") and current
+Each row shows a success rate (e.g. "85% (17/20)") and current
 pass streak, sourced from the *same* per-test run history Allure's own Trend
 widget uses - fetched from the previously published report before this
 script runs (`ci.yml`'s "Fetch previous report history" step in the
@@ -111,11 +113,11 @@ per commit, so "the newest reis-app commit at or before this run's
 timestamp" (resolved via a full clone of reis-app checked out alongside this
 repo in CI, see `ci.yml`) is the best available proxy for "what was live at
 the time" - not a guarantee that commit had actually been deployed yet.
-Expanding "Last N runs" on a known issue's row shows the full breakdown:
-timestamp, status, and resolved reis-app version for every retained run.
+Expanding "Last N runs" on a row shows the full breakdown: timestamp,
+status, and resolved reis-app version for every retained run.
 
-Degrades gracefully rather than failing the gate: a known issue with no
-history yet (the very first time it's tagged, or the branch's first-ever
+Degrades gracefully rather than failing the gate: a scenario with no
+history yet (the very first time it fails, or the branch's first-ever
 run) shows "No history yet" instead of a rate; if reis-app's checkout step
 ever fails, versions just show as "unknown" instead of blocking anything.
 
