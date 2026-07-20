@@ -14,6 +14,21 @@ copy .env.example .env
 
 Fill in `BASE_URL` and `API_BASE_URL` in `.env` for the system under test.
 
+### VS Code: step navigation / "undefined step" underlines
+
+If Gherkin steps in `features/*.feature` show as undefined (underlined, no
+go-to-definition), it's because playwright-bdd's `Given`/`When`/`Then`
+(`steps/bdd.ts`) are re-exports, not the real `@cucumber/cucumber` ones the
+"Cucumber (Official)" / "Cucumber (Gherkin) Full Support" VS Code extensions
+look for. `.vscode/cucumber-glue/` holds a generated, IDE-only shim
+(no-op step definitions using the real `@cucumber/cucumber` import) that
+those extensions can match against — regenerate it after changing any step
+text with `npm run generate:cucumber-glue` (also runs automatically on
+folder open via `.vscode/tasks.json`). Don't edit files in that folder by
+hand. Its "Run/Debug Scenario" codelens executes the no-op shim, not the
+real Playwright steps — use `npm run bdd`/`test:e2e`/etc. to actually run
+tests.
+
 ## Run tests
 
 ```

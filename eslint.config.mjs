@@ -4,7 +4,13 @@ import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   {
-    ignores: ['.features-gen/**', 'node_modules/**', 'allure-report/**', 'playwright-report/**'],
+    ignores: [
+      '.features-gen/**',
+      'node_modules/**',
+      'allure-report/**',
+      'playwright-report/**',
+      '.vscode/cucumber-glue/**',
+    ],
   },
   ...tseslint.configs.recommended,
   {
