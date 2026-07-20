@@ -69,20 +69,27 @@ const KNOWN_ISSUE_TAG_PREFIX = 'known-issue:';
 // SEVERITY_LABELS (critical->Blocker/Critical, serious->Major,
 // moderate->Minor, minor->Cosmetic, used directly as the report's column
 // headers below) for *what* fails a "<Page> meets WCAG level <X>" scenario -
-// that severity logic is unchanged. maxFailurePercent is the same E2E-style
-// tolerance layered on top, but it only ever applies to a failure that did
-// NOT involve a Blocker/Critical finding - Blocker/Critical is always a
-// hard, zero-tolerance release-blocker at every level (see
-// computeAccessibilityLevels' hard/soft split below), never subject to a
-// percentage. A scenario's failure percentage is a *total Accessibility
-// scenario count across all three levels combined* that may fail, rounded
-// up with a minimum of 1 once above 0% (see computeMaxFailures). Level A
-// stays 0% regardless (baseline conformance level, no tolerance for
-// anything, same as @critical in E2E) - AA/AAA's gate currently only fires
-// on Blocker/Critical (`GATE_IMPACTS`), which is always hard, so their 1%/
-// 5% ceiling has nothing else to apply to *yet*: it only becomes reachable
-// if AA/AAA are ever tightened to also gate on Major (see
-// ai/accessibility-testing.md's note on that).
+// that severity logic is unchanged, still what Allure/the `accessibility`
+// job actually gates on.
+//
+// maxFailurePercent is a separate, additional readiness check layered on
+// top of the scenario gate: a percentage of the *total violation count
+// across all three levels combined* (every individual axe finding, any
+// severity - see computeAccessibilityLevels) that non-Blocker/Critical
+// (Major/Minor/Cosmetic) violations found at that level may not exceed.
+// Violations, not scenarios, because AA/AAA's own gate only ever fails a
+// scenario on Blocker/Critical - a scenario-count-based tolerance had
+// nothing else to apply to (every AA/AAA failure was hard by definition).
+// Counting individual violations instead makes the ceiling apply to the
+// Major/Minor/Cosmetic backlog directly, regardless of whether any of it
+// happens to fail a scenario. Rounded up, with a minimum of 1 once above 0%
+// (see computeMaxFailures). Level A stays 0% regardless (baseline
+// conformance level, no tolerance for anything, same as @critical in E2E).
+//
+// Blocker/Critical itself is NEVER eligible for this percentage, at any
+// level - a scenario that failed because of a Blocker/Critical finding
+// always counts as a hard failure (0 allowed, see HARD_FAILURE_IMPACT
+// below), independent of how the violation-count tolerance works out.
 const A11Y_LEVELS = [
   {
     level: 'A',
@@ -94,12 +101,9 @@ const A11Y_LEVELS = [
   { level: 'AAA', gateImpacts: ['critical'], thresholdLabel: '0 Blocker/Critical', maxFailurePercent: 5 },
 ];
 
-// Blocker/Critical is never eligible for the percentage tolerance above -
-// no matter the level, a scenario that failed because of a Blocker/Critical
-// finding always counts as a hard failure (0 allowed). Only a failure whose
-// gating violations were exclusively lower-severity (e.g. Level A failing
-// on Major alone, with no Blocker/Critical present) is "soft" and eligible
-// for the percentage.
+// A scenario that failed because its scan found a Blocker/Critical
+// violation always counts as a hard failure - 0 tolerance, at every level,
+// never subject to the violation-count percentage above.
 const HARD_FAILURE_IMPACT = 'critical';
 
 const SECURITY_THRESHOLD_LABEL = '100% pass (0 failed/broken)';
@@ -108,7 +112,12 @@ async function main() {
   const latestByHistoryId = await loadLatestAllureResults();
 
   const { buckets: e2eBuckets, knownIssues, unknownIssues, totalE2e } = computeE2eBuckets(latestByHistoryId);
-  const { levels: accessibilityLevels, totalA11y } = await computeAccessibilityLevels(latestByHistoryId);
+  const {
+    levels: accessibilityLevels,
+    totalA11y,
+    totalViolations,
+    totalChecks,
+  } = await computeAccessibilityLevels(latestByHistoryId);
   const security = computeSecurity(latestByHistoryId);
 
   const overallReady =
@@ -127,6 +136,8 @@ async function main() {
         knownIssues,
         unknownIssues,
         totalA11y,
+        totalViolations,
+        totalChecks,
         accessibilityLevels,
         security,
         excludedSuites: EXCLUDED_SUITES,
@@ -144,6 +155,7 @@ async function main() {
       knownIssues,
       unknownIssues,
       totalA11y,
+      totalChecks,
       accessibilityLevels,
       security,
       generatedAt,
@@ -169,10 +181,12 @@ async function main() {
       console.log(`  ${u.name} (${u.riskLabel})`);
     }
   }
-  console.log(`Accessibility (by WCAG level, ${totalA11y} total across all levels):`);
+  console.log(
+    `Accessibility (by WCAG level, ${totalA11y} scenarios / ${totalViolations} violations / ${totalChecks} axe checks performed across all levels):`,
+  );
   for (const l of accessibilityLevels) {
     console.log(
-      `  ${l.level}: ${l.passed}/${l.total} scenarios passed, ${l.failures} failing (${l.hardFailures} Blocker/Critical - always 0 allowed, ${l.softFailures} other - max ${l.maxFailures} allowed, ${l.maxFailurePercent}% of ${totalA11y}), threshold ${l.thresholdLabel} - severity counts ${JSON.stringify(l.severityCounts)} - ${l.ready ? 'OK' : 'FAIL'}`,
+      `  ${l.level}: ${l.passed}/${l.total} scenarios passed, ${l.hardFailures} Blocker/Critical scenario failures - always 0 allowed, ${l.nonCriticalViolations} non-critical violations found - max ${l.maxAllowedViolations} allowed (${l.maxFailurePercent}% of ${totalChecks} checks), threshold ${l.thresholdLabel} - severity counts ${JSON.stringify(l.severityCounts)} - ${l.ready ? 'OK' : 'FAIL'}`,
     );
   }
   console.log(
@@ -310,6 +324,7 @@ async function computeAccessibilityLevels(latestByHistoryId) {
   const severityCounts = Object.fromEntries(
     A11Y_LEVELS.map((l) => [l.level, { critical: 0, serious: 0, moderate: 0, minor: 0 }]),
   );
+  const checksPerformed = Object.fromEntries(A11Y_LEVELS.map((l) => [l.level, 0]));
   const recordsByPageLevel = new Map();
   const dataFiles = (await readdir(A11Y_DATA_DIR).catch(() => [])).filter((f) =>
     f.endsWith('.json'),
@@ -323,7 +338,8 @@ async function computeAccessibilityLevels(latestByHistoryId) {
         severityCounts[record.level][impact]++;
       }
     }
-    const key = `${record.page} ${record.level}`;
+    checksPerformed[record.level] += record.checksPerformed ?? 0;
+    const key = `${record.page} ${record.level}`;
     if (!recordsByPageLevel.has(key)) recordsByPageLevel.set(key, []);
     recordsByPageLevel.get(key).push(record);
   }
@@ -335,35 +351,46 @@ async function computeAccessibilityLevels(latestByHistoryId) {
   // raw data for a failing scenario is treated as hard too - fail-closed,
   // never silently grant tolerance we can't actually verify.
   const hardFailures = Object.fromEntries(A11Y_LEVELS.map((l) => [l.level, 0]));
-  const softFailures = Object.fromEntries(A11Y_LEVELS.map((l) => [l.level, 0]));
   for (const { level, page } of failingScenarios) {
-    const records = recordsByPageLevel.get(`${page} ${level}`) ?? [];
+    const records = recordsByPageLevel.get(`${page} ${level}`) ?? [];
     const hasHardImpact = records.some((r) =>
       (r.violations ?? []).some((v) => v.impact === HARD_FAILURE_IMPACT),
     );
     if (hasHardImpact || records.length === 0) hardFailures[level]++;
-    else softFailures[level]++;
   }
 
   const totalA11y = Object.values(scenarioCounts).reduce((sum, c) => sum + c.total, 0);
+  const totalViolations = Object.values(severityCounts).reduce(
+    (sum, s) => sum + s.critical + s.serious + s.moderate + s.minor,
+    0,
+  );
+  // The percentage tolerance's denominator: every axe *rule* actually
+  // evaluated (pass, fail, or inconclusive - see checksPerformed in
+  // pageobjects/_shared/accessibility.ts), summed across all three levels -
+  // not the violation count. Scales the tolerance with how much was
+  // actually checked, rather than shrinking every time more issues are
+  // found (a growing violation count would otherwise also grow its own
+  // denominator, silently loosening the tolerance).
+  const totalChecks = Object.values(checksPerformed).reduce((sum, n) => sum + n, 0);
   const levels = A11Y_LEVELS.map((l) => {
     const c = scenarioCounts[l.level];
-    const maxFailures = computeMaxFailures(l.maxFailurePercent, totalA11y);
+    const s = severityCounts[l.level];
+    const nonCriticalViolations = s.serious + s.moderate + s.minor;
+    const maxAllowedViolations = computeMaxFailures(l.maxFailurePercent, totalChecks);
     const hard = hardFailures[l.level];
-    const soft = softFailures[l.level];
     return {
       level: l.level,
       thresholdLabel: l.thresholdLabel,
       maxFailurePercent: l.maxFailurePercent,
       ...c,
       hardFailures: hard,
-      softFailures: soft,
-      maxFailures,
-      ready: c.total > 0 && hard === 0 && soft <= maxFailures,
-      severityCounts: severityCounts[l.level],
+      nonCriticalViolations,
+      maxAllowedViolations,
+      ready: c.total > 0 && hard === 0 && nonCriticalViolations <= maxAllowedViolations,
+      severityCounts: s,
     };
   });
-  return { levels, totalA11y };
+  return { levels, totalA11y, totalViolations, totalChecks };
 }
 
 function buildHtmlReport(
@@ -373,6 +400,7 @@ function buildHtmlReport(
   knownIssues,
   unknownIssues,
   totalA11y,
+  totalChecks,
   accessibilityLevels,
   security,
   generatedAt,
@@ -408,30 +436,31 @@ function buildHtmlReport(
   </section>
 
   <section class="group">
-    <h2>Accessibility - by WCAG level <span class="muted">(${totalA11y} total across all levels)</span></h2>
+    <h2>Accessibility - by WCAG level <span class="muted">(${totalA11y} scenarios, ${totalChecks} axe checks performed across all levels)</span></h2>
     <table class="suite-table a11y-table">
       <thead>
         <tr>
           <th rowspan="2">Level</th>
           <th rowspan="2">Threshold</th>
-          <th colspan="2" class="group-header">Scenario gate <span class="muted">(drives Status)</span></th>
-          <th colspan="4" class="group-header group-divider">Violations found <span class="muted">(informational - every severity axe found at this level, whether or not it gates)</span></th>
+          <th colspan="2" class="group-header">Scenario gate <span class="muted">(hard block - GATE_IMPACTS, unchanged)</span></th>
+          <th colspan="5" class="group-header group-divider">Violations found <span class="muted">(every severity axe found at this level - Major/Minor/Cosmetic drive Status via the tolerance too)</span></th>
           <th rowspan="2">Status</th>
         </tr>
         <tr>
           <th>Scenarios</th>
-          <th>Max allowed</th>
+          <th>Hard block</th>
           <th class="group-divider">Blocker/Critical</th>
           <th>Major</th>
           <th>Minor</th>
           <th>Cosmetic</th>
+          <th>Max allowed</th>
         </tr>
       </thead>
       <tbody>
-        ${accessibilityLevels.map((l) => renderA11yRow(l, totalA11y)).join('\n')}
+        ${accessibilityLevels.map((l) => renderA11yRow(l, totalChecks)).join('\n')}
       </tbody>
     </table>
-    <p class="muted footnote">"Scenarios"/"Max allowed" (left) is what drives Status - how many of the <code>&lt;Page&gt; meets WCAG level &lt;X&gt;</code> scenarios failed, and the tolerance for that. "Blocker/Critical"/"Major"/"Minor"/"Cosmetic" (right) is a separate, informational count of individual violations axe found across every scan at that level - it does not add up against "Max allowed" and doesn't by itself mean a scenario failed (e.g. AAA can show several Major violations while every scenario still passes, since AAA's gate only fails on Blocker/Critical). A Blocker/Critical finding always fails its scenario with zero tolerance, at every level - never subject to a percentage. AA and AAA currently only gate on Blocker/Critical (see ai/accessibility-testing.md), so their configured 1%/5% ceiling has nothing else to apply to yet and both show 0 allowed today; it activates only if those levels are ever tightened to also gate on Major.</p>
+    <p class="muted footnote">"Scenarios"/"Hard block" (left) reflects the unchanged per-scenario gate (<code>GATE_IMPACTS</code>) - any Blocker/Critical finding always fails its scenario and always blocks the level's Status, zero tolerance, no percentage, at every level. "Blocker/Critical"/"Major"/"Minor"/"Cosmetic"/"Max allowed" (right) is a second, independent readiness check: the total count of individual violations axe found across every scan at that level, regardless of whether they gate a scenario. Major/Minor/Cosmetic findings may not exceed "Max allowed" - a percentage of the total number of axe <em>checks performed</em> across all three levels combined (every rule axe evaluated, pass or fail - not the violation count, so the tolerance scales with how much was actually checked rather than shrinking as more issues turn up) - or the level is not-ready even if every individual scenario in the left group passed. Blocker/Critical itself is never counted toward "Max allowed" (already covered by "Hard block", left). Level A's percentage stays a hard 0% regardless.</p>
   </section>
 
   <section class="group">
@@ -475,7 +504,7 @@ function renderE2eRow(b, totalE2e) {
       </tr>`;
 }
 
-function renderA11yRow(l, totalA11y) {
+function renderA11yRow(l, totalChecks) {
   const noResults = l.total === 0;
   const statusClass = noResults ? 'fail' : l.ready ? 'pass' : 'fail';
   const statusLabel = noResults ? 'No results' : l.ready ? 'OK' : 'Fail';
@@ -484,14 +513,12 @@ function renderA11yRow(l, totalA11y) {
         <td>${escapeHtml(l.level)}</td>
         <td>${escapeHtml(l.thresholdLabel)}</td>
         <td>${l.passed}/${l.total}</td>
-        <td>
-          0 Blocker/Critical <span class="muted">(never tolerated)</span><br />
-          ${l.maxFailures} other <span class="muted">(${l.maxFailurePercent}% of ${totalA11y})</span>
-        </td>
+        <td>${l.hardFailures} <span class="muted">(never tolerated)</span></td>
         <td class="group-divider">${l.severityCounts.critical}</td>
         <td>${l.severityCounts.serious}</td>
         <td>${l.severityCounts.moderate}</td>
         <td>${l.severityCounts.minor}</td>
+        <td>${l.maxAllowedViolations} <span class="muted">(${l.maxFailurePercent}% of ${totalChecks} checks)</span></td>
         <td><span class="badge badge-${statusClass}">${statusLabel}</span></td>
       </tr>`;
 }
