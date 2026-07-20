@@ -99,44 +99,48 @@ unchanged - still the same per-level severity gate documented in
 | AAA | any Blocker/Critical (Major allowed) |
 
 What's new is a second, independent readiness check layered on top: a cap
-on the *volume* of Major/Minor/Cosmetic findings, as a percentage of how
-much was actually checked:
+on the *volume* of Major/Minor/Cosmetic violation types found, as a
+percentage of that level's own scenario count:
 
-| Level | Max Major/Minor/Cosmetic violations allowed |
+| Level | Max Major/Minor/Cosmetic volume allowed |
 | --- | --- |
 | A | 0% |
 | AA | 1% |
 | AAA | 5% |
 
-### Percentage of checks performed, not of violations found
+### Violation types, already deduplicated by axe - and per level, not combined
 
-The denominator is the **total number of axe rules actually evaluated
-across all three levels combined** - every rule axe ran (pass, fail, or
-inconclusive; not `inapplicable`, which means the rule never even matched
-an element on the page) - not the number of violations found. This is
-`checksPerformed` in `pageobjects/_shared/accessibility.ts` (summed per
-scan into `totalChecks` in `check-release-readiness.mjs`), typically in
-the hundreds for a real page. Using checks rather than violations as the
-denominator matters: a violations-only denominator shrinks as more issues
-turn up, which would make the tolerance loosen automatically the worse
-things get. Checks performed is stable regardless of how many of them
-failed, so the percentage means the same thing on a clean page and a messy
-one. Rounded up, with a minimum of 1 once the percentage is above 0%
+The count going into this check is `severityCounts.serious + moderate +
+minor` from the raw axe scan data (`a11y-report-data/`) - Major/Minor/
+Cosmetic violations found, summed across every scan at that level. This is
+already a *type* count, not an element count: axe's own `violations` array
+has at most one entry per rule per scan (a rule flagging 83 elements on
+one page is one entry with 83 `nodes`, not 83 entries), so no extra
+dedup step is needed on top of it - it was never counting elements in the
+first place. The same rule recurring on a different page, or in a
+different browser project's scan of the same page, does count again there
+- it's a real, separate occurrence.
+
+The percentage is of **that level's own scenario count**, not the
+combined total across all three levels (unlike the E2E buckets) - AA and
+AAA don't necessarily run the same number of scenarios, and a shared
+denominator would let one level's count dilute another's tolerance.
+Rounded up, with a minimum of 1 once the percentage is above 0%
 (`computeMaxFailures`, shared with the E2E calculation).
 
 This check is independent of, and *in addition to*, the scenario gate
 above - a level can have every individual scenario pass (Major/Minor/
 Cosmetic don't gate AA/AAA scenarios, see the table above) and still be
 reported not-ready here, once its accumulated Major/Minor/Cosmetic volume
-crosses the percentage. That's intentional: it's what makes the AA/AAA
-percentage actually reachable and meaningful rather than a number that
-never applies to anything (see "Blocker/Critical is never eligible"
+crosses that level's own ceiling. That's intentional: it's what makes the
+AA/AAA percentage actually reachable and meaningful rather than a number
+that never applies to anything (see "Blocker/Critical is never eligible"
 below for why a scenario-failure-based version of this tolerance didn't
 work for AA/AAA at all). It also means a page can accumulate a real,
 worth-fixing backlog of lower-severity findings without every single CI
 run turning red the moment any exist - the cap only trips once that
-backlog gets disproportionately large relative to how much is being
-checked.
+backlog gets disproportionately large relative to that level's own
+scenario count.
 
 ### Blocker/Critical is never eligible for the percentage
 
@@ -146,11 +150,10 @@ instead: a scenario that failed because its scan found a Blocker/Critical
 violation always counts as a hard failure, a fixed 0 allowed, no
 percentage, regardless of how the Major/Minor/Cosmetic volume check
 above turns out. `check-release-readiness.mjs` cross-references each
-failing scenario against its raw axe scan record (`a11y-report-data/`) to
-confirm a Blocker/Critical violation was actually present. Missing raw
-data for a failing scenario is treated as a hard failure too -
-fail-closed, the report never silently grants tolerance it can't actually
-verify.
+failing scenario against its raw axe scan record to confirm a Blocker/
+Critical violation was actually present. Missing raw data for a failing
+scenario is treated as a hard failure too - fail-closed, the report never
+silently grants tolerance it can't actually verify.
 
 Level A's own percentage stays a hard 0% regardless of any of this - a
 foundational-accessibility regression is always release-blocking,
@@ -161,12 +164,12 @@ The report shows, per level: how many `<Page> meets WCAG level <X>`
 scenarios passed and how many failed on a hard Blocker/Critical finding
 (from Allure - this is what actually gates the `accessibility` job, in
 the "Scenario gate" column group), the full Blocker/Critical/Major/Minor/
-Cosmetic violation-count breakdown and the volume tolerance (from the raw
-axe scan data in `a11y-report-data/`, uploaded as its own CI artifact, in
-the separate "Violations found" column group) - so a level can show
-"OK" while still surfacing non-blocking findings, not just a checkmark
-with no detail, and the two independent readiness checks stay visually
-distinct rather than reading as one blended number.
+Cosmetic violation-type breakdown, their sum ("Non-critical total"), and
+the volume tolerance ("Max allowed") in the separate "Violations found"
+column group - so a level can show "OK" while still surfacing
+non-blocking findings, not just a checkmark with no detail, and the two
+independent readiness checks stay visually distinct rather than reading
+as one blended number.
 
 ## Security
 

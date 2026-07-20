@@ -85,22 +85,7 @@ export async function scanAccessibility(page: Page, testInfo: TestInfo, level: W
     await writeFile(path.join(REPORT_DATA_DIR, screenshotFile), screenshot);
   }
 
-  // Total axe *rules* evaluated for this scan (pass, fail, or inconclusive -
-  // not `inapplicable`, which means the rule never even matched an element
-  // on this page) - used by scripts/check-release-readiness.mjs as the
-  // denominator for its Major/Minor/Cosmetic violation-tolerance
-  // percentage, so that tolerance scales with how much was actually
-  // checked rather than just how much happened to fail.
-  const checksPerformed = results.violations.length + results.passes.length + results.incomplete.length;
-
-  await writeReportRecord(
-    testInfo,
-    level,
-    page.url(),
-    results.violations,
-    checksPerformed,
-    screenshotFile,
-  );
+  await writeReportRecord(testInfo, level, page.url(), results.violations, screenshotFile);
 
   const gateImpacts = GATE_IMPACTS[level];
   const failingViolations = results.violations.filter((violation) =>
@@ -120,7 +105,6 @@ async function writeReportRecord(
   level: WcagLevel,
   url: string,
   violations: Result[],
-  checksPerformed: number,
   screenshotFile: string | undefined,
 ): Promise<void> {
   await mkdir(REPORT_DATA_DIR, { recursive: true });
@@ -128,7 +112,6 @@ async function writeReportRecord(
     page: testInfo.title.replace(/\s+meets WCAG level \S+$/i, ''),
     level,
     url,
-    checksPerformed,
     violations: violations.map((violation) => ({
       id: violation.id,
       impact: impactOf(violation),
