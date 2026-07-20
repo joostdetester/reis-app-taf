@@ -1,0 +1,66 @@
+name: Backlog drift check
+
+# Purely mechanical, no LLM/API cost - the free alternative to the daily
+# audit workflow (.github/workflows/daily-backlog-audit.yml), whose
+# schedule is disabled since it needs paid Anthropic API credits the user
+# doesn't want. Runs on every push/PR that touches test-relevant files and
+# warns (never fails the build) when they changed without ai/test-backlog.md
+# or ai/improvement-checklist.md also changing in the same push/PR - a
+# nudge to go ask Claude for a real audit, not a replacement for one.
+on:
+  push:
+    branches: [main, acceptance]
+  pull_request:
+    branches: [main, acceptance]
+
+jobs:
+  check:
+    name: Check for undocumented drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Compare changed files against the backlog docs
+        run: |
+          # pull_request: compare against the PR's merge-base, same as a
+          # reviewer would (only this PR's own commits, not unrelated base
+          # history). push: compare against the previous commit on this ref.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+
+          # First push of a new branch, or a force-push with no sane
+          # previous SHA (before is all-zeros) - nothing to diff against,
+          # skip rather than fail.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "No previous commit to diff against - skipping."
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE" HEAD)
+
+          TEST_CHANGES=$(echo "$CHANGED" | grep -E '^(features/.*\.feature|steps/.*\.steps\.ts)$' || true)
+          DOC_CHANGES=$(echo "$CHANGED" | grep -E '^ai/(test-backlog|improvement-checklist)\.md$' || true)
+
+          if [ -n "$TEST_CHANGES" ] && [ -z "$DOC_CHANGES" ]; then
+            {
+              echo "## ⚠️ Backlog docs may be out of date"
+              echo
+              echo "This push changed feature/step files but not \`ai/test-backlog.md\`"
+              echo "or \`ai/improvement-checklist.md\`. That's often fine (not every"
+              echo "change needs a backlog update) - just a nudge to check, not a"
+              echo "hard requirement. This job never fails the build."
+              echo
+              echo "Changed test files:"
+              echo '```'
+              echo "$TEST_CHANGES"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Feature/step files changed without a matching ai/test-backlog.md or ai/improvement-checklist.md update - see step summary."
+          else
+            echo "No undocumented drift detected."
+          fi
