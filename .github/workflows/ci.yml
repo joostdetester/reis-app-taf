@@ -411,6 +411,35 @@ jobs:
           name: a11y-report-data
           path: a11y-report-data
 
+      # Known-issue success-rate/streak stats (see check-release-readiness.mjs)
+      # read the same per-test run history Allure's own Trend widget uses -
+      # best-effort, same as test-summary's identical fetch: continue on 404
+      # (e.g. this branch's very first run) since there's nothing to show yet
+      # then. Only history.json itself is needed here, not the trend-widget
+      # files test-summary also pulls.
+      - name: Fetch previous report history (for known-issue trend stats)
+        continue-on-error: true
+        run: |
+          mkdir -p allure-results/history
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          BRANCH="${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) }}"
+          PAGES_URL="https://${{ github.repository_owner }}.github.io/${REPO_NAME}/${BRANCH}/"
+          curl -fsSL "${PAGES_URL}history/history.json" -o "allure-results/history/history.json" 2>/dev/null || true
+
+      # So a known-issue's success streak can show *which reis-app version*
+      # it started passing against - reis-app is a separate, public repo not
+      # otherwise checked out here. fetch-depth: 0 (full history, not a
+      # shallow clone) since a streak can span several days of commits.
+      # Best-effort: if this ever fails (e.g. the repo becomes private), the
+      # script just omits the version column rather than failing the gate.
+      - name: Checkout reis-app (for known-issue version correlation)
+        continue-on-error: true
+        uses: actions/checkout@v7
+        with:
+          repository: joostdetester/reis-app
+          path: reis-app-repo
+          fetch-depth: 0
+
       # Exit code from this step is the gate itself - a non-zero exit (not
       # every suite at 100% pass) fails this job.
       - run: npm run release:readiness

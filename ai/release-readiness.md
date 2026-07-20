@@ -73,9 +73,9 @@ Every failing E2E scenario shows up in exactly one table below the risk-
 bucket summary:
 
 - **Known issues** - has a `@known-issue:TICKET-ID` tag. Shows the ticket
-  reference, risk level, and status. If it starts passing again, it still
-  shows up here (status "Now passing - remove tag?") - a nudge to remove
-  the now-stale tag along with whatever fixed it.
+  reference, risk level, status, and a success-rate trend (see below). If it
+  starts passing again, it still shows up here (status "Now passing - remove
+  tag?") - a nudge to remove the now-stale tag along with whatever fixed it.
 - **Unknown issues** - failing with no `@known-issue` tag - something new
   or unexpected. Same shape, no ticket column, since there isn't one yet.
   Once triaged and filed, add the tag and it moves to Known issues on the
@@ -84,6 +84,40 @@ bucket summary:
 E2E-only for now (not Accessibility/Security) - extend
 `scripts/check-release-readiness.mjs`'s known-issue handling to those
 sections too if that's ever needed there.
+
+#### Success-rate trend
+
+Purely informational context alongside the hard pass/fail count above, not
+part of the gate itself - a known issue that's actually flaky (sometimes
+passes, sometimes fails) reads very differently from one that's been
+consistently broken for weeks, and the plain "Still failing" / "Now passing"
+status alone doesn't distinguish the two.
+
+Each known issue's row shows a success rate (e.g. "85% (17/20)") and current
+pass streak, sourced from the *same* per-test run history Allure's own Trend
+widget uses - fetched from the previously published report before this
+script runs (`ci.yml`'s "Fetch previous report history" step in the
+`release-readiness` job), so no separate tracking mechanism exists alongside
+Allure's. Allure retains at most the last 20 runs per test, which is why the
+denominator is "20", not the scenario's full lifetime - a run older than
+that has already rolled off.
+
+If a streak of consecutive passes is currently active, the row also names
+which reis-app commit was live when that streak started (e.g. "8 in a row,
+since reis-app 6df5e9f") - useful for spotting "this got fixed around
+version X" at a glance. This is an **approximation**: reis-app deploys are
+manual (`vercel --prod`, see reis-app's README), not triggered automatically
+per commit, so "the newest reis-app commit at or before this run's
+timestamp" (resolved via a full clone of reis-app checked out alongside this
+repo in CI, see `ci.yml`) is the best available proxy for "what was live at
+the time" - not a guarantee that commit had actually been deployed yet.
+Expanding "Last N runs" on a known issue's row shows the full breakdown:
+timestamp, status, and resolved reis-app version for every retained run.
+
+Degrades gracefully rather than failing the gate: a known issue with no
+history yet (the very first time it's tagged, or the branch's first-ever
+run) shows "No history yet" instead of a rate; if reis-app's checkout step
+ever fails, versions just show as "unknown" instead of blocking anything.
 
 ## Accessibility - by WCAG level
 
