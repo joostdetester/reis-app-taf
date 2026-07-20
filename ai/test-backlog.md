@@ -91,8 +91,8 @@ voor hoe de release-readiness gate hierop gaat.
 - ✅ `color-contrast-enhanced` (AAA, 7:1) op Flights/Hotels (`--muted:#64757f`
   op `#fffcf6`, 4.66:1) en Trip overview's tijdlijn-thema (`--lx-muted:#6d7781`
   op `#fcfbf7`, 4.4:1) — opgelost in `reis-app` (`--muted` → `#47535c`,
-  `--lx-muted` → `#495359`), lokaal geverifieerd met axe; **nog niet
-  gedeployed** (`vercel --prod` volgt nog, zie `reis-app`'s deploy-proces).
+  `--lx-muted` → `#495359`); live geverifieerd met axe tegen productie
+  (`vercel --prod`, 2026-07-20).
 - ✅ `select-name` (Blocker/Critical) op Praktische informatie (weer-stad
   `<select>` had geen toegankelijke naam) — `aria-label` toegevoegd in
   dezelfde `reis-app`-commit.
