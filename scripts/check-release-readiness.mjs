@@ -409,15 +409,29 @@ function buildHtmlReport(
 
   <section class="group">
     <h2>Accessibility - by WCAG level <span class="muted">(${totalA11y} total across all levels)</span></h2>
-    <table class="suite-table">
+    <table class="suite-table a11y-table">
       <thead>
-        <tr><th>Level</th><th>Threshold</th><th>Scenarios</th><th>Max allowed</th><th>Blocker/Critical</th><th>Major</th><th>Minor</th><th>Cosmetic</th><th>Status</th></tr>
+        <tr>
+          <th rowspan="2">Level</th>
+          <th rowspan="2">Threshold</th>
+          <th colspan="2" class="group-header">Scenario gate <span class="muted">(drives Status)</span></th>
+          <th colspan="4" class="group-header group-divider">Violations found <span class="muted">(informational - every severity axe found at this level, whether or not it gates)</span></th>
+          <th rowspan="2">Status</th>
+        </tr>
+        <tr>
+          <th>Scenarios</th>
+          <th>Max allowed</th>
+          <th class="group-divider">Blocker/Critical</th>
+          <th>Major</th>
+          <th>Minor</th>
+          <th>Cosmetic</th>
+        </tr>
       </thead>
       <tbody>
         ${accessibilityLevels.map((l) => renderA11yRow(l, totalA11y)).join('\n')}
       </tbody>
     </table>
-    <p class="muted footnote">A Blocker/Critical finding always fails a scenario with zero tolerance, at every level - never subject to a percentage. AA and AAA currently only gate on Blocker/Critical (see ai/accessibility-testing.md), so their configured 1%/5% ceiling has nothing else to apply to yet and both show 0 allowed today; it activates only if those levels are ever tightened to also gate on Major.</p>
+    <p class="muted footnote">"Scenarios"/"Max allowed" (left) is what drives Status - how many of the <code>&lt;Page&gt; meets WCAG level &lt;X&gt;</code> scenarios failed, and the tolerance for that. "Blocker/Critical"/"Major"/"Minor"/"Cosmetic" (right) is a separate, informational count of individual violations axe found across every scan at that level - it does not add up against "Max allowed" and doesn't by itself mean a scenario failed (e.g. AAA can show several Major violations while every scenario still passes, since AAA's gate only fails on Blocker/Critical). A Blocker/Critical finding always fails its scenario with zero tolerance, at every level - never subject to a percentage. AA and AAA currently only gate on Blocker/Critical (see ai/accessibility-testing.md), so their configured 1%/5% ceiling has nothing else to apply to yet and both show 0 allowed today; it activates only if those levels are ever tightened to also gate on Major.</p>
   </section>
 
   <section class="group">
@@ -474,7 +488,7 @@ function renderA11yRow(l, totalA11y) {
           0 Blocker/Critical <span class="muted">(never tolerated)</span><br />
           ${l.maxFailures} other <span class="muted">(${l.maxFailurePercent}% of ${totalA11y})</span>
         </td>
-        <td>${l.severityCounts.critical}</td>
+        <td class="group-divider">${l.severityCounts.critical}</td>
         <td>${l.severityCounts.serious}</td>
         <td>${l.severityCounts.moderate}</td>
         <td>${l.severityCounts.minor}</td>
@@ -598,6 +612,9 @@ td .muted { font-size: 12px; }
 .suite-table tr:last-child td { border-bottom: none; }
 .suite-table tr.fail td:first-child { border-left: 4px solid var(--fail); }
 .suite-table tr.pass td:first-child { border-left: 4px solid var(--pass); }
+.a11y-table .group-header { text-align: center; }
+.a11y-table .group-header .muted { display: block; text-transform: none; letter-spacing: normal; font-weight: 400; font-size: 11px; margin-top: 2px; }
+.a11y-table .group-divider { border-left: 2px solid var(--line); }
 .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
 .badge-pass { background: var(--pass-bg); color: var(--pass); }
 .badge-fail { background: var(--fail-bg); color: var(--fail); }
