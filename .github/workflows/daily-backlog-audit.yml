@@ -1,0 +1,58 @@
+name: Daily backlog audit
+
+# Keeps ai/test-backlog.md and ai/improvement-checklist.md honest without
+# relying on someone remembering to do it manually - see the prompt at
+# .github/prompts/daily-backlog-audit.md for exactly what it checks and
+# its (deliberately narrow) write scope. Runs Claude Code headlessly
+# (`claude -p`), so it needs ANTHROPIC_API_KEY as a repo secret - add one
+# at https://console.anthropic.com/settings/keys and set it under
+# Settings > Secrets and variables > Actions. Without that secret this
+# job fails immediately (no silent no-op).
+#
+# Opens a PR when it finds something to update, never merges one and
+# never pushes directly to main/acceptance - see the prompt's "Strict
+# scope" section. A day with nothing to update is expected and produces
+# no PR, not an empty one.
+#
+# 06:23 UTC, not 06:00 - avoids every scheduled workflow across GitHub
+# landing on the same minute mark.
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  audit:
+    name: Audit backlog docs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+
+      - run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Configure git identity for any commits this run makes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run audit
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          claude -p "$(cat .github/prompts/daily-backlog-audit.md)" --dangerously-skip-permissions
