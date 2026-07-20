@@ -83,6 +83,24 @@ Bron: live-verkenning van `BASE_URL=https://reis-bf84496b20.vercel.app` op 2026-
 - 🚫 "Opslaan" persisteert de wijziging correct — geblokkeerd: vereist een los test-/staging-endpoint zodat schrijftests niet de echte gezinsreisdata overschrijven (nog te realiseren in `reis-app`)
 - ✅ Ongeldige token wordt geweigerd (blijft read-only) — `reis-app` valideert de token nu server-side (nieuwe `verify-edit-token` Edge Function) voordat de UI Bewerk-knoppen toont, i.p.v. alleen te checken of er een token aanwezig is; scenario "An invalid edit token keeps the app read-only" toegevoegd aan `features/edit-flow.feature`. Schrijven zelf was al veilig (`save-edit` valideerde de token-hash al) — zie `reis-app`'s `SECURITY.md`.
 
+## Toegankelijkheid (`@accessibility`)
+
+Zie `ai/accessibility-testing.md` voor scope/WCAG-niveaus en `ai/release-readiness.md`
+voor hoe de release-readiness gate hierop gaat.
+
+- ✅ `color-contrast-enhanced` (AAA, 7:1) op Flights/Hotels (`--muted:#64757f`
+  op `#fffcf6`, 4.66:1) en Trip overview's tijdlijn-thema (`--lx-muted:#6d7781`
+  op `#fcfbf7`, 4.4:1) — opgelost in `reis-app` (`--muted` → `#47535c`,
+  `--lx-muted` → `#495359`), lokaal geverifieerd met axe; **nog niet
+  gedeployed** (`vercel --prod` volgt nog, zie `reis-app`'s deploy-proces).
+- ✅ `select-name` (Blocker/Critical) op Praktische informatie (weer-stad
+  `<select>` had geen toegankelijke naam) — `aria-label` toegevoegd in
+  dezelfde `reis-app`-commit.
+- ✅ `nested-interactive` op Today/Trip overview (hotel-/vlucht-link genest
+  in de klikbare dagkaart-header) — `DayCard` herstructureerd: de header is
+  nu een gewone div met een echte `<button>` (titel/datum/weer) plus de
+  links als broertjes, niet als kinderen. Zelfde commit.
+
 ## Security (`@security`)
 
 Zie `ai/security-testing.md` voor scope en OWASP-mapping.
