@@ -67,7 +67,7 @@ zodanig waren bijgewerkt.
 
 ## Foto's (`#/photos`)
 
-- 📝 Lege-staat: dag zonder foto's toont "Nog geen foto's voor deze dag."
+- ✅ Lege-staat: dag zonder foto's toont "Nog geen foto's voor deze dag." *(bevestigd: 2026-07-20)*
 - 🚫 Dag mét foto's toont de foto's correct — geblokkeerd: huidige databron heeft (nog) geen enkele dag met foto's, dus niet te verifiëren tot er testdata met foto's is
 
 ## Praktische informatie (`#/practical`)
