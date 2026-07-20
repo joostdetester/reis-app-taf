@@ -496,6 +496,11 @@ jobs:
           path: allure-results
 
       - name: Download Visual Regression Allure results
+        # Skip entirely rather than continue-on-error: while `visual` has
+        # if: false (see that job's comment), it never produces this
+        # artifact, so attempting the download every run just leaves a
+        # permanent, misleading "error" annotation on an otherwise-green run.
+        if: needs.visual.result != 'skipped'
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:

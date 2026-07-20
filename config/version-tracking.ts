@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { projectConfig } from './project.config';
 import { trackedThirdPartyVersions } from './tracked-third-party-versions';
@@ -24,6 +25,52 @@ async function fetchAppVersion(): Promise<VersionRecord> {
   } catch (error) {
     console.warn(`[version-tracking] Kon ${projectConfig.baseUrl}/version.json niet ophalen: ${(error as Error).message}`);
     return { version: 'unknown' };
+  }
+}
+
+// Same CalVer format reis-app's scripts/write-version.mjs uses for its own
+// version.json, so the two read consistently side by side in the widget.
+function formatCalVer(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getUTCFullYear()}.${pad(date.getUTCMonth() + 1)}.${pad(date.getUTCDate())}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}`;
+}
+
+function formatReadableUtc(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
+}
+
+// This repo's own version/commit - distinct from `reis-app`'s (the SUT),
+// which tracks what was deployed and tested *against*. Without this, the
+// Allure report's Environment widget only shows what reis-app version was
+// tested, not which reis-app-taf commit ran the tests - so a report can't be
+// traced back to its own source without cross-referencing the GitHub Actions
+// run. `version` is this run's own timestamp (same CalVer shape as
+// reis-app.version, so a same-day re-run of the same commit still reads as
+// distinct) - not the branch name, which is already its own separate
+// "Branch" field (see ci.yml's "Write Allure environment info" step).
+// `commit`'s parenthetical is the commit's own committer date instead - when
+// the code was actually written, not when this particular run happened.
+// GITHUB_SHA is always set by the Actions runner; falls back to `git`
+// directly for local runs, where it's unset. The committer-date lookup
+// always targets HEAD rather than $GITHUB_SHA specifically - equivalent in
+// both CI (HEAD *is* the checked-out commit) and locally, and avoids a
+// second (potentially failing) `git log <sha>` call.
+function resolveTafGitInfo(): VersionRecord {
+  const commit = process.env.GITHUB_SHA ?? tryGit(['rev-parse', 'HEAD']);
+  const committedAtIso = tryGit(['log', '-1', '--format=%cI']);
+  const committedAt = committedAtIso ? formatReadableUtc(new Date(committedAtIso)) : undefined;
+  return {
+    version: formatCalVer(new Date()),
+    commit: commit ? `${commit.slice(0, 7)}${committedAt ? ` (${committedAt})` : ''}` : undefined,
+  };
+}
+
+function tryGit(args: string[]): string | undefined {
+  try {
+    return execFileSync('git', args, { encoding: 'utf8' }).trim();
+  } catch {
+    return undefined;
   }
 }
 
@@ -85,6 +132,14 @@ export async function writeVersionEnvironment(): Promise<void> {
 
   const previous = readLastKnownVersions();
   const lines = toPropertyLines(current, previous);
+
+  // reis-app-taf's own commit/branch changes on every run by definition, so
+  // it's deliberately kept out of the current/previous diffing above (which
+  // would otherwise flag a ".version.changed" - and a last-known-versions.json
+  // commit - on every single run) - just a plain, always-fresh property line.
+  const tafInfo = resolveTafGitInfo();
+  lines.push(`reis-app-taf.version=${tafInfo.version}`);
+  if (tafInfo.commit) lines.push(`reis-app-taf.commit=${tafInfo.commit}`);
 
   mkdirSync(path.dirname(ENVIRONMENT_PROPERTIES_PATH), { recursive: true });
   writeFileSync(ENVIRONMENT_PROPERTIES_PATH, lines.join('\n') + '\n');
