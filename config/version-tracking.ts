@@ -28,17 +28,42 @@ async function fetchAppVersion(): Promise<VersionRecord> {
   }
 }
 
-// This repo's own commit/branch - distinct from `reis-app`'s (the SUT), which
-// tracks what was deployed and tested *against*. Without this, the Allure
-// report's Environment widget only shows what reis-app version was tested,
-// not which reis-app-taf commit ran the tests - so a report can't be traced
-// back to its own source without cross-referencing the GitHub Actions run.
-// GITHUB_SHA/GITHUB_REF_NAME are always set by the Actions runner; falls
-// back to `git` directly for local runs, where they're unset.
+// Same CalVer format reis-app's scripts/write-version.mjs uses for its own
+// version.json, so the two read consistently side by side in the widget.
+function formatCalVer(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getUTCFullYear()}.${pad(date.getUTCMonth() + 1)}.${pad(date.getUTCDate())}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}`;
+}
+
+function formatReadableUtc(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
+}
+
+// This repo's own version/commit - distinct from `reis-app`'s (the SUT),
+// which tracks what was deployed and tested *against*. Without this, the
+// Allure report's Environment widget only shows what reis-app version was
+// tested, not which reis-app-taf commit ran the tests - so a report can't be
+// traced back to its own source without cross-referencing the GitHub Actions
+// run. `version` is this run's own timestamp (same CalVer shape as
+// reis-app.version, so a same-day re-run of the same commit still reads as
+// distinct) - not the branch name, which is already its own separate
+// "Branch" field (see ci.yml's "Write Allure environment info" step).
+// `commit`'s parenthetical is the commit's own committer date instead - when
+// the code was actually written, not when this particular run happened.
+// GITHUB_SHA is always set by the Actions runner; falls back to `git`
+// directly for local runs, where it's unset. The committer-date lookup
+// always targets HEAD rather than $GITHUB_SHA specifically - equivalent in
+// both CI (HEAD *is* the checked-out commit) and locally, and avoids a
+// second (potentially failing) `git log <sha>` call.
 function resolveTafGitInfo(): VersionRecord {
   const commit = process.env.GITHUB_SHA ?? tryGit(['rev-parse', 'HEAD']);
-  const branch = process.env.GITHUB_REF_NAME ?? tryGit(['rev-parse', '--abbrev-ref', 'HEAD']);
-  return { version: branch ?? 'unknown', commit: commit ? commit.slice(0, 7) : undefined };
+  const committedAtIso = tryGit(['log', '-1', '--format=%cI']);
+  const committedAt = committedAtIso ? formatReadableUtc(new Date(committedAtIso)) : undefined;
+  return {
+    version: formatCalVer(new Date()),
+    commit: commit ? `${commit.slice(0, 7)}${committedAt ? ` (${committedAt})` : ''}` : undefined,
+  };
 }
 
 function tryGit(args: string[]): string | undefined {
