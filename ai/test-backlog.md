@@ -15,51 +15,54 @@ Status per scenario:
 - ❓ Open vraag — scope/gedrag nog niet vastgesteld
 
 Bron: live-verkenning van `BASE_URL=https://reis-bf84496b20.vercel.app` op 2026-07-15.
+Volledige herverificatie van de hele backlog (elk ✅-item hieronder tegen de
+werkelijke `features/*.feature`/steps gecontroleerd en met `npm run test:e2e`
+opnieuw gedraaid) op 2026-07-20 — vandaar dat vrijwel elk item die datum als
+"bevestigd" draagt, ook items die al langer bestonden maar hier nog niet als
+zodanig waren bijgewerkt.
 
 ## Navigatie (bestaand)
 
-- ✅ Bottom navigation opent elke hoofdsectie (Today → Trip → Hotels → Vluchten → Today)
-- ✅ Extra-menu opent Foto's en Praktische informatie
-- ✅ Alle hoofdpagina's bezoeken geeft geen console errors
-- ✅ Today-pagina voldoet aan WCAG A/AA/AAA
+- ✅ Bottom navigation opent elke hoofdsectie (Today → Trip → Hotels → Vluchten → Today) *(bevestigd: 2026-07-20)*
+- ✅ Extra-menu opent Foto's en Praktische informatie *(bevestigd: 2026-07-20)*
+- ✅ Alle hoofdpagina's bezoeken geeft geen console errors *(bevestigd: 2026-07-20 — één webkit-run flakete hier ooit op, herhaling slaagde meteen; geen reproduceerbare bug)*
+- ✅ Today-pagina voldoet aan WCAG A/AA/AAA *(bevestigd: 2026-07-20)*
 
 ## Today / Dagweergave (`#/today`)
 
-> ⚠️ Technische schuld: het bestaande `pageobjects` Today-object gebruikt een `.day-card`-locator die niet in de live DOM is aangetroffen. Eerst verifiëren/repareren voordat onderstaande scenario's gebouwd worden.
-
-- 📝 Toont vandaag (en morgen) als kaart met bestemming, datum, weer, strandscore
-- 📝 Vlucht- en hotelinfo worden correct samengevat op de dagkaart
-- 📝 Elk dagdeel (ochtend/middag/avond) toont de juiste activiteit
-- 📝 Notitieveld toont "Geen notitie" wanneer leeg, anders de ingevulde tekst
-- 📝 "Open locatie in Google Maps"-link bevat de juiste locatiequery
-- 📝 Klik op vlucht-samenvatting navigeert naar `#/transport?item=<id>`
-- 📝 Klik op hotel-samenvatting navigeert naar `#/hotels?item=<id>`
-- 📝 Countdown/klokken/eerstvolgende-vlucht bovenaan tonen correcte waarden
+- ✅ Toont vandaag als kaart met bestemming, datum, weer, strandscore *(bevestigd: 2026-07-20; het "toont ook morgen"-deel valt onder de open vraag hieronder)*
+- ✅ Vlucht- en hotelinfo worden correct samengevat op de dagkaart *(bevestigd: 2026-07-20)*
+- ✅ Elk dagdeel (ochtend/middag/avond) toont de juiste activiteit *(bevestigd: 2026-07-20)*
+- ✅ Notitieveld toont "Geen notitie" wanneer leeg, anders de ingevulde tekst *(bevestigd: 2026-07-20)*
+- ✅ "Open locatie in Google Maps"-link bevat de juiste locatiequery *(bevestigd: 2026-07-20)*
+- ✅ Klik op vlucht-samenvatting navigeert naar de vluchtdetailpagina *(bevestigd: 2026-07-20)*
+- ✅ Klik op hotel-samenvatting navigeert naar de hoteldetailpagina *(bevestigd: 2026-07-20)*
+- ✅ Countdown/klokken/eerstvolgende-vlucht bovenaan tonen correcte waarden *(bevestigd: 2026-07-20)*
 - ❓ Gedrag vóór de reisstartdatum (toont het "morgen"-kaart pas vanaf reisstart, of altijd vandaag+morgen?) — nader te bepalen, mogelijk afhankelijk van systeemdatum-mocking
 
 ## Trip overview / Tijdlijn (`#/trip`)
 
-- 📝 Tijdlijn (default view) toont alle reisdagen chronologisch
-- 📝 Wisselen naar "Bestemmingen"-view (`?view=destinations`) groepeert per bestemming/regio
-- 📝 Wisselen naar "Kalender"-view (`?view=calendar`) toont compacte datum→bestemming lijst
-- 📝 View-keuze blijft behouden na page refresh (query param)
-- 📝 "Top activiteiten op GetYourGuide"-link per bestemming (Bestemmingen-view)
-- 📝 Zoekveld filtert de tijdlijn live op een geldige zoekterm (bv. "El Nido")
+- ✅ Tijdlijn (default view) toont alle reisdagen chronologisch *(bevestigd: 2026-07-20)*
+- ✅ Wisselen naar "Bestemmingen"-view (`?view=destinations`) groepeert per bestemming/regio *(bevestigd: 2026-07-20)*
+- ✅ Wisselen naar "Kalender"-view (`?view=calendar`) toont compacte datum→bestemming lijst *(bevestigd: 2026-07-20)*
+- ✅ View-keuze blijft behouden na page refresh (query param) *(bevestigd: 2026-07-20)*
+- ✅ "Top activiteiten op GetYourGuide"-link per bestemming (Bestemmingen-view) *(bevestigd: 2026-07-20)*
+- ✅ Zoekveld filtert de tijdlijn live op een geldige zoekterm (bv. "El Nido") *(bevestigd: 2026-07-20)*
 - ❓ Zoekveld bij een zoekterm zonder resultaten — moet nog bevestigd worden of er een expliciete "geen resultaten"-melding hoort te zijn (nu leek de resultatenlijst gewoon leeg)
 
 ## Hotels (`#/hotels`)
 
-- 📝 Lijst toont alle geboekte hotels met naam, data, in-/uitchecktijden, adres, telefoon, boekingsnummer
-- 📝 "Open in Google Maps"-link per hotel correct
-- 📝 "Bekijk op Booking.com"-link per hotel correct
+- ✅ Lijst toont alle geboekte hotels met naam, data, in-/uitchecktijden, adres, telefoon, boekingsnummer *(bevestigd: 2026-07-20)*
+- ✅ "Open in Google Maps"-link per hotel correct *(bevestigd: 2026-07-20)*
+- ✅ "Bekijk op Booking.com"-link per hotel correct *(bevestigd: 2026-07-20)*
 - ❓ Deep-link vanuit Today/Tijdlijn (`?item=<id>`) — nog te bepalen of dit moet scrollen naar/highlighten van het specifieke hotel, of alleen de lijst toont
 
 ## Vluchten (`#/transport`)
 
-- 📝 Per vlucht: vluchtnummer, vertrek-/aankomsttijd+tijdzone, duur correct getoond
-- 📝 Flightradar24-link per vlucht wijst naar het juiste vluchtnummer (bevestigd aanwezig, bv. `flightradar24.com/data/flights/wy172`)
-- 📝 Gate/terminal toont placeholder ("Nog niet beschikbaar") totdat 2 uur van tevoren
-- 📝 Routelink (Google Maps directions) tussen vertrek- en aankomstlocatie correct
+- ✅ Per vlucht: vluchtnummer, vertrek-/aankomsttijd+tijdzone, duur correct getoond *(bevestigd: 2026-07-20)*
+- ✅ Flightradar24-link per vlucht wijst naar het juiste vluchtnummer *(bevestigd: 2026-07-20)*
+- ✅ Gate/terminal toont placeholder ("Nog niet beschikbaar") totdat 2 uur van tevoren *(bevestigd: 2026-07-20)*
+- ✅ Routelink (Google Maps directions) tussen vertrek- en aankomstlocatie correct *(bevestigd: 2026-07-20)*
 - ❓ Tijdzone-correctheid bij vluchten die tijdzones overschrijden — nader te bepalen hoe dit te verifiëren zonder harde datum-afhankelijkheid
 
 ## Foto's (`#/photos`)
@@ -69,19 +72,19 @@ Bron: live-verkenning van `BASE_URL=https://reis-bf84496b20.vercel.app` op 2026-
 
 ## Praktische informatie (`#/practical`)
 
-- 📝 Weer-dropdown wisselt van stad en toont bijbehorende 14-daagse voorspelling
-- 📝 Peso↔Euro-converter: invoer in het ene veld herberekent het andere veld correct
-- 📝 Getoonde wisselkoers-datum komt overeen met de testdatum
-- 📝 Statische info-blokken (Nood/Geld/Vervoer/Bereikbaarheid) tonen verwachte content
+- ✅ Weer-dropdown wisselt van stad en toont bijbehorende 14-daagse voorspelling *(bevestigd: 2026-07-20)*
+- ✅ Peso↔Euro-converter: invoer in het ene veld herberekent het andere veld correct *(bevestigd: 2026-07-20)*
+- ✅ Getoonde wisselkoers-datum komt overeen met de testdatum *(bevestigd: 2026-07-20)*
+- ✅ Statische info-blokken (Nood/Geld/Vervoer/Bereikbaarheid) tonen verwachte content *(bevestigd: 2026-07-20)*
 
 ## Bewerkflow (`?token=...`)
 
-- 📝 View-only modus (geen/ongeldige token) toont "ALLEEN-LEZEN"-badge en geen Bewerk-knoppen
-- 📝 Geldige-token modus toont "Uitloggen"-knop en Bewerk-knoppen per dagdeel/notitie
-- 📝 Klik op "Bewerk" opent het juiste inline formulier ("<Dagdeel> bewerken")
-- 📝 "Annuleren" sluit het formulier zonder wijziging door te voeren
+- ✅ View-only modus (geen/ongeldige token) toont "ALLEEN-LEZEN"-badge en geen Bewerk-knoppen *(bevestigd: 2026-07-20)*
+- ✅ Geldige-token modus toont "Uitloggen"-knop en Bewerk-knoppen per dagdeel/notitie *(bevestigd: 2026-07-20)*
+- ✅ Klik op "Bewerk" opent het juiste inline formulier ("<Dagdeel> bewerken") *(bevestigd: 2026-07-20)*
+- ✅ "Annuleren" sluit het formulier zonder wijziging door te voeren *(bevestigd: 2026-07-20)*
 - 🚫 "Opslaan" persisteert de wijziging correct — geblokkeerd: vereist een los test-/staging-endpoint zodat schrijftests niet de echte gezinsreisdata overschrijven (nog te realiseren in `reis-app`)
-- ✅ Ongeldige token wordt geweigerd (blijft read-only) — `reis-app` valideert de token nu server-side (nieuwe `verify-edit-token` Edge Function) voordat de UI Bewerk-knoppen toont, i.p.v. alleen te checken of er een token aanwezig is; scenario "An invalid edit token keeps the app read-only" toegevoegd aan `features/edit-flow.feature`. Schrijven zelf was al veilig (`save-edit` valideerde de token-hash al) — zie `reis-app`'s `SECURITY.md`.
+- ✅ Ongeldige token wordt geweigerd (blijft read-only) — `reis-app` valideert de token nu server-side (nieuwe `verify-edit-token` Edge Function) voordat de UI Bewerk-knoppen toont, i.p.v. alleen te checken of er een token aanwezig is; scenario "An invalid edit token keeps the app read-only" toegevoegd aan `features/edit-flow.feature`. Schrijven zelf was al veilig (`save-edit` valideerde de token-hash al) — zie `reis-app`'s `SECURITY.md`. *(bevestigd: 2026-07-20)*
 
 ## Toegankelijkheid (`@accessibility`)
 
@@ -105,13 +108,13 @@ voor hoe de release-readiness gate hierop gaat.
 
 Zie `ai/security-testing.md` voor scope en OWASP-mapping.
 
-- ✅ Edit-token blijft niet zichtbaar in de adresbalk (ook niet na een reload)
-- ✅ Zoekveld verwerkt een script-injection payload veilig (geen dialog, geen match)
-- ✅ App-response zet Strict-Transport-Security
-- 🚫 App-response zet Content-Security-Policy / X-Frame-Options / X-Content-Type-Options — geblokkeerd: ontbreken momenteel echt (bevestigd live), fix hoort in `reis-app` (bv. `vercel.json` headers-config); scenario breidt uit zodra dat er is
+- ✅ Edit-token blijft niet zichtbaar in de adresbalk (ook niet na een reload) *(bevestigd: 2026-07-20)*
+- ✅ Zoekveld verwerkt een script-injection payload veilig (geen dialog, geen match) *(bevestigd: 2026-07-20)*
+- ✅ App-response zet Strict-Transport-Security *(bevestigd: 2026-07-20)*
+- 📝 App-response zet Content-Security-Policy / X-Frame-Options / X-Content-Type-Options — **blokkade opgeheven**: `reis-app` zet deze headers nu (`vercel.json`, commit "Add security response headers"), live geverifieerd met `curl -sI` tegen productie op 2026-07-20 (alle 3 aanwezig). Er bestaat alleen nog geen Gherkin-scenario dat dit assert — `features/security.feature`'s OWASP A05-scenario checkt nu alleen STS, moet uitgebreid worden.
 - 📝 `npm audit` / `npm outdated` op beide repo's (handmatig, fase 3)
 - 📝 OWASP ZAP baseline-scan tegen test-/acceptance-omgeving (handmatig, fase 3, nooit tegen productie)
-- ✅ `security`-job in CI (`npm run test:security` + `npm audit --audit-level=high`), eigen Allure-suite naast E2E/Accessibility/Visual Regression
+- ✅ `security`-job in CI (`npm run test:security` + `npm audit --audit-level=high`), eigen Allure-suite naast E2E/Accessibility/Visual Regression *(bevestigd: 2026-07-20)*
 
 ## Buiten scope (voorlopig)
 
