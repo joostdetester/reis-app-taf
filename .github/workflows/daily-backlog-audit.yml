@@ -17,8 +17,13 @@ name: Daily backlog audit
 # 06:23 UTC, not 06:00 - avoids every scheduled workflow across GitHub
 # landing on the same minute mark.
 on:
-  schedule:
-    - cron: '23 6 * * *'
+  # Schedule disabled: the ANTHROPIC_API_KEY behind this needs its own paid
+  # API credit balance (separate from a Claude.ai/Claude Code subscription),
+  # which the user decided isn't worth it for this - confirmed live, the job
+  # failed daily with "Credit balance is too low". Re-enable by uncommenting
+  # once/if that changes; workflow_dispatch still lets it run manually.
+  # schedule:
+  #   - cron: '23 6 * * *'
   workflow_dispatch: {}
 
 jobs:
