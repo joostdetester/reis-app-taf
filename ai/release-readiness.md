@@ -112,19 +112,46 @@ three levels combined**, not of that level's own total - the same
 combined-total basis E2E uses, for the same reason (a handful of scenarios
 per level would otherwise round every nonzero percentage down to the same
 number). Rounded up, with a minimum of 1 once the percentage is above 0%
-(`computeMaxFailures`, shared with the E2E calculation). Level A stays at a
-hard 0% - a foundational-accessibility regression is always release-
-blocking, no tolerance.
+(`computeMaxFailures`, shared with the E2E calculation).
+
+### Blocker/Critical is never eligible for the percentage
+
+The percentage above only ever applies to a failure that did **not**
+involve a Blocker/Critical finding. A Blocker/Critical finding is always a
+hard, zero-tolerance release-blocker, at every level, no matter how few
+scenarios it affects - the percentage exists to tolerate a small amount of
+lower-severity noise, not to let a rare-enough critical accessibility bug
+through. `check-release-readiness.mjs` cross-references each failing
+scenario against its raw axe scan record (`a11y-report-data/`) to tell the
+two apart: a "hard" failure (Blocker/Critical present) always counts
+against a fixed 0, a "soft" failure (failed on a lower gating severity
+alone) counts against the level's percentage. Missing raw data for a
+failing scenario is treated as hard too - fail-closed, the report never
+silently grants tolerance it can't actually verify.
+
+In practice, today, this makes AA and AAA's 1%/5% ceiling currently
+unreachable: their `GATE_IMPACTS` gate on Blocker/Critical *only* (see the
+table above), so every AA/AAA failure is by construction a hard one - there
+is currently no way for either level to fail on Major/Minor/Cosmetic alone.
+Both levels report "0 other allowed" today as a result, identical in
+practice to Level A's fixed 0%, even though their configured percentage is
+nonzero. That's intentional, not a bug: the 1%/5% is a ceiling for once/if
+AA and AAA are ever tightened to also gate on Major (see
+`ai/accessibility-testing.md`'s note on that) - it starts applying to real
+Major-only failures automatically, with no further change needed here,
+the moment that happens. Level A's own percentage stays a hard 0%
+regardless of this split - a foundational-accessibility regression is
+always release-blocking, whether it's Blocker/Critical or Major.
 
 The report shows, per level: how many `<Page> meets WCAG level <X>`
 scenarios passed (from Allure - this is what actually gates the
-`accessibility` job), how many failing scenarios are allowed before the
-level flips not-ready (e.g. "1 (1% of 62)"), plus the full Blocker/Critical/
-Major/Minor/Cosmetic severity-count breakdown (from the raw axe scan data
-in `a11y-report-data/`, uploaded as its own CI artifact) - so a level can
-show "OK" while still surfacing non-blocking findings (e.g. AAA passing
-with a couple of Major findings that don't gate it), not just a checkmark
-with no detail.
+`accessibility` job), the hard-vs-soft failure allowance (e.g. "0
+Blocker/Critical (never tolerated)" / "1 other (1% of 54)"), plus the full
+Blocker/Critical/Major/Minor/Cosmetic severity-count breakdown (from the
+raw axe scan data in `a11y-report-data/`, uploaded as its own CI artifact)
+- so a level can show "OK" while still surfacing non-blocking findings
+(e.g. AAA passing with a couple of Major findings that don't gate it), not
+just a checkmark with no detail.
 
 ## Security
 
