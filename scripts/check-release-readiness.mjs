@@ -6,11 +6,14 @@
 // fail, i.e. the actual gate. Run via `npm run release:readiness` after the
 // test jobs. See ai/release-readiness.md for the full policy.
 import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 const RESULTS_DIR = process.env.ALLURE_RESULTS_DIR ?? 'allure-results';
 const A11Y_DATA_DIR = process.env.A11Y_REPORT_DATA_DIR ?? 'a11y-report-data';
 const OUT_DIR = process.env.RELEASE_READINESS_OUT_DIR ?? 'release-readiness-report';
+const ALLURE_HISTORY_PATH = path.join(RESULTS_DIR, 'history', 'history.json');
+const REIS_APP_REPO_DIR = process.env.REIS_APP_REPO_DIR ?? 'reis-app-repo';
 
 // Visual Regression is currently disabled in CI (playwright.config.ts's
 // Today-page baseline goes stale on its own with the real calendar date -
@@ -108,8 +111,15 @@ const SECURITY_THRESHOLD_LABEL = '100% pass (0 failed/broken)';
 
 async function main() {
   const latestByHistoryId = await loadLatestAllureResults();
+  const allureHistory = await loadAllureHistory();
+  const reisAppTimeline = loadReisAppCommitTimeline();
 
-  const { buckets: e2eBuckets, knownIssues, unknownIssues, totalE2e } = computeE2eBuckets(latestByHistoryId);
+  const {
+    buckets: e2eBuckets,
+    knownIssues,
+    unknownIssues,
+    totalE2e,
+  } = computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline);
   const { levels: accessibilityLevels, totalA11y } = await computeAccessibilityLevels(latestByHistoryId);
   const security = computeSecurity(latestByHistoryId);
 
@@ -162,13 +172,13 @@ async function main() {
   if (knownIssues.length) {
     console.log('Known issues (still count toward the failure counts above):');
     for (const k of knownIssues) {
-      console.log(`  [${k.ticket}] ${k.name} (${k.riskLabel}) - ${k.status}`);
+      console.log(`  [${k.ticket}] ${k.name} (${k.riskLabel}) - ${k.status}${formatTrendLogLabel(k.trend)}`);
     }
   }
   if (unknownIssues.length) {
     console.log('Unknown issues (unexpected failures, no @known-issue tag yet):');
     for (const u of unknownIssues) {
-      console.log(`  ${u.name} (${u.riskLabel})`);
+      console.log(`  ${u.name} (${u.riskLabel})${formatTrendLogLabel(u.trend)}`);
     }
   }
   console.log(`Accessibility (by WCAG level, ${totalA11y} scenarios across all levels):`);
@@ -207,6 +217,7 @@ async function loadLatestAllureResults() {
         name: raw.name,
         status: raw.status,
         stop: raw.stop,
+        historyId: raw.historyId,
         parentSuite: labels.find((l) => l.name === 'parentSuite')?.value,
         tags: labels.filter((l) => l.name === 'tag').map((l) => l.value),
       });
@@ -224,7 +235,105 @@ function knownIssueTicket(tags) {
   return tag ? tag.slice(KNOWN_ISSUE_TAG_PREFIX.length) : null;
 }
 
-function computeE2eBuckets(latestByHistoryId) {
+// Same per-test run history Allure's own Trend widget reads (fetched from
+// the previously published report by ci.yml, before this script runs) -
+// Allure retains at most the last 20 runs per historyId, newest first.
+// Missing entirely (e.g. this branch's very first run) just means no known
+// issue gets trend stats - not a hard failure.
+async function loadAllureHistory() {
+  try {
+    return JSON.parse(await readFile(ALLURE_HISTORY_PATH, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+// reis-app is a separate, public repo checked out alongside this one purely
+// so a known issue's success streak can show *which reis-app version* it
+// started passing against. Returns commits oldest-first with their
+// committer-date timestamp, or null if the checkout isn't present (e.g. the
+// best-effort CI step failed, or a local run with no REIS_APP_REPO_DIR).
+function loadReisAppCommitTimeline() {
+  try {
+    const output = execFileSync('git', ['log', '--format=%H %cI'], {
+      cwd: REIS_APP_REPO_DIR,
+      encoding: 'utf-8',
+    });
+    return output
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const spaceIndex = line.indexOf(' ');
+        return {
+          hash: line.slice(0, spaceIndex),
+          timestampMs: new Date(line.slice(spaceIndex + 1)).getTime(),
+        };
+      })
+      .sort((a, b) => a.timestampMs - b.timestampMs);
+  } catch {
+    return null;
+  }
+}
+
+// The newest reis-app commit at or before the given timestamp - an
+// approximation of "what was live at the time", not a guarantee: reis-app
+// deploys are manual (`vercel --prod`), not triggered automatically per
+// commit, so a commit's own timestamp isn't necessarily when it actually
+// went live. See ai/release-readiness.md.
+function resolveReisAppCommitAt(timeline, timestampMs) {
+  if (!timeline?.length) return null;
+  let result = null;
+  for (const commit of timeline) {
+    if (commit.timestampMs <= timestampMs) result = commit;
+    else break;
+  }
+  return result ? result.hash.slice(0, 7) : null;
+}
+
+// Success rate, current pass streak, and (if reis-app's history is
+// available) the streak's starting reis-app version, for a single known
+// issue - purely additional context alongside the hard pass/fail count
+// already gating the release, not itself part of the gate.
+function buildIssueTrend(historyId, allureHistory, reisAppTimeline) {
+  const entry = historyId ? allureHistory?.[historyId] : undefined;
+  if (!entry?.items?.length) return null;
+
+  const items = entry.items; // newest-first, per Allure's own ordering
+  const total = items.length;
+  const passed = items.filter((item) => item.status === 'passed').length;
+
+  let streak = 0;
+  for (const item of items) {
+    if (item.status !== 'passed') break;
+    streak++;
+  }
+  const streakSinceVersion =
+    streak > 0 ? resolveReisAppCommitAt(reisAppTimeline, items[streak - 1].time.start) : null;
+
+  const runs = items.map((item) => ({
+    date: new Date(item.time.start).toISOString().replace('T', ' ').slice(0, 16) + ' UTC',
+    status: item.status,
+    reisAppVersion: resolveReisAppCommitAt(reisAppTimeline, item.time.start),
+  }));
+
+  return {
+    total,
+    passed,
+    successRatePercent: Math.round((passed / total) * 100),
+    streak,
+    streakSinceVersion,
+    runs,
+  };
+}
+
+function formatTrendLogLabel(trend) {
+  if (!trend) return '';
+  const since = trend.streakSinceVersion ? ` since reis-app ${trend.streakSinceVersion}` : '';
+  return ` - success rate ${trend.successRatePercent}% (${trend.passed}/${trend.total}), streak ${trend.streak}${since}`;
+}
+
+function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline) {
   const counts = Object.fromEntries(
     E2E_RISK_BUCKETS.map((b) => [b.key, { total: 0, passed: 0, failures: 0 }]),
   );
@@ -245,13 +354,32 @@ function computeE2eBuckets(latestByHistoryId) {
       // A @known-issue scenario that's now passing means the underlying
       // problem may be fixed - surfaced so the tag gets cleaned up rather
       // than silently staying on a scenario that no longer needs it.
-      if (ticket) knownIssues.push({ name: test.name, ticket, riskLabel, status: 'passing' });
+      if (ticket) {
+        knownIssues.push({
+          name: test.name,
+          ticket,
+          riskLabel,
+          status: 'passing',
+          trend: buildIssueTrend(test.historyId, allureHistory, reisAppTimeline),
+        });
+      }
     } else if (isFailure(test.status)) {
       counts[key].failures++;
       if (ticket) {
-        knownIssues.push({ name: test.name, ticket, riskLabel, status: 'failing' });
+        knownIssues.push({
+          name: test.name,
+          ticket,
+          riskLabel,
+          status: 'failing',
+          trend: buildIssueTrend(test.historyId, allureHistory, reisAppTimeline),
+        });
       } else {
-        unknownIssues.push({ name: test.name, riskLabel, status: 'failing' });
+        unknownIssues.push({
+          name: test.name,
+          riskLabel,
+          status: 'failing',
+          trend: buildIssueTrend(test.historyId, allureHistory, reisAppTimeline),
+        });
       }
     }
   }
@@ -511,7 +639,7 @@ function renderKnownIssues(knownIssues) {
       <h3>Known issues <span class="muted">(still count toward Failed above)</span></h3>
       <table class="suite-table">
         <thead>
-          <tr><th>Ticket</th><th>Scenario</th><th>Risk</th><th>Status</th></tr>
+          <tr><th>Ticket</th><th>Scenario</th><th>Risk</th><th>Success rate</th><th>Status</th></tr>
         </thead>
         <tbody>
           ${knownIssues.map(renderKnownIssueRow).join('\n')}
@@ -522,13 +650,50 @@ function renderKnownIssues(knownIssues) {
 
 function renderKnownIssueRow(k) {
   const isStale = k.status === 'passing';
-  return `
+  const row = `
       <tr class="${isStale ? 'stale' : 'known'}">
         <td><code>${escapeHtml(k.ticket)}</code></td>
         <td>${escapeHtml(k.name)}</td>
         <td>${escapeHtml(k.riskLabel)}</td>
+        <td>${renderIssueTrendSummary(k.trend)}</td>
         <td><span class="badge badge-${isStale ? 'stale' : 'known'}">${isStale ? 'Now passing - remove tag?' : 'Still failing'}</span></td>
       </tr>`;
+  const details = k.trend ? renderIssueTrendDetails(k.trend) : '';
+  return details ? `${row}\n      <tr class="${isStale ? 'stale' : 'known'}"><td colspan="5">${details}</td></tr>` : row;
+}
+
+// "Success rate" summary cell - a run history of at most Allure's own
+// retention window (20 runs), not the full lifetime of the scenario, so
+// this reads as "recently" rather than an all-time statistic that never
+// meaningfully changes once a ticket's been open a while.
+function renderIssueTrendSummary(trend) {
+  if (!trend) return '<span class="muted">No history yet</span>';
+  const since = trend.streakSinceVersion
+    ? `, since reis-app <code>${escapeHtml(trend.streakSinceVersion)}</code>`
+    : '';
+  const streakLabel = trend.streak > 0 ? `${trend.streak} in a row${since}` : 'currently failing';
+  return `${trend.successRatePercent}% <span class="muted">(${trend.passed}/${trend.total})</span><br /><span class="muted">${streakLabel}</span>`;
+}
+
+function renderIssueTrendDetails(trend) {
+  const rows = trend.runs
+    .map(
+      (run) => `
+          <tr>
+            <td>${escapeHtml(run.date)}</td>
+            <td><span class="badge badge-${run.status === 'passed' ? 'pass' : 'fail'}">${run.status === 'passed' ? 'Passed' : 'Failed'}</span></td>
+            <td>${run.reisAppVersion ? `<code>${escapeHtml(run.reisAppVersion)}</code>` : '<span class="muted">unknown</span>'}</td>
+          </tr>`,
+    )
+    .join('\n');
+  return `
+    <details class="trend-details">
+      <summary>Last ${trend.runs.length} runs</summary>
+      <table class="suite-table trend-table">
+        <thead><tr><th>Run</th><th>Status</th><th>reis-app version</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </details>`;
 }
 
 function renderUnknownIssues(unknownIssues) {
@@ -537,7 +702,7 @@ function renderUnknownIssues(unknownIssues) {
       <h3>Unknown issues <span class="muted">(no @known-issue tag - needs triage)</span></h3>
       <table class="suite-table">
         <thead>
-          <tr><th>Scenario</th><th>Risk</th><th>Status</th></tr>
+          <tr><th>Scenario</th><th>Risk</th><th>Success rate</th><th>Status</th></tr>
         </thead>
         <tbody>
           ${unknownIssues.map(renderUnknownIssueRow).join('\n')}
@@ -547,12 +712,15 @@ function renderUnknownIssues(unknownIssues) {
 }
 
 function renderUnknownIssueRow(u) {
-  return `
+  const row = `
       <tr class="fail">
         <td>${escapeHtml(u.name)}</td>
         <td>${escapeHtml(u.riskLabel)}</td>
+        <td>${renderIssueTrendSummary(u.trend)}</td>
         <td><span class="badge badge-fail">Failing</span></td>
       </tr>`;
+  const details = u.trend ? renderIssueTrendDetails(u.trend) : '';
+  return details ? `${row}\n      <tr class="fail"><td colspan="4">${details}</td></tr>` : row;
 }
 
 function renderExcluded() {
@@ -633,6 +801,10 @@ td .muted { font-size: 12px; }
 .issue-table h3 .muted { text-transform: none; letter-spacing: normal; font-weight: 400; }
 .issue-table tr.known td:first-child, .issue-table tr.stale td:first-child { border-left: 4px solid var(--warn); }
 .issue-table code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
+.trend-details { font-size: 13px; }
+.trend-details summary { cursor: pointer; color: var(--muted); }
+.trend-table { margin-top: 8px; box-shadow: none; }
+.trend-table th, .trend-table td { padding: 6px 10px; font-size: 12px; }
 .excluded { margin-top: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
 .excluded h2 { margin: 0 0 8px; font-size: 16px; }
 .excluded ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
