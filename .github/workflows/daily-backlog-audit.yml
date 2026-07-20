@@ -28,6 +28,13 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    # ANTHROPIC_API_KEY is an *environment* secret (test/acceptance), not a
+    # repository secret - a job only gets environment secrets when it
+    # declares that environment explicitly. Same test/acceptance split
+    # ci.yml's other jobs use, though this workflow only ever runs against
+    # main (schedule/workflow_dispatch default to the default branch), so
+    # this resolves to 'test' in practice.
+    environment: "${{ github.ref_name == 'acceptance' && 'acceptance' || 'test' }}"
     steps:
       - uses: actions/checkout@v7
         with:
