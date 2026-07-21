@@ -10,6 +10,12 @@ import path from 'node:path';
 const DATA_DIR = process.env.A11Y_REPORT_DATA_DIR ?? 'a11y-report-data';
 const OUT_DIR = process.env.A11Y_REPORT_OUT_DIR ?? 'a11y-report';
 const BASE_URL = process.env.BASE_URL ?? '';
+// Written by config/version-tracking.ts's writeVersionEnvironment() during
+// `npm run test:a11y` (which always runs before this script - see ci.yml),
+// alongside allure-results/environment.properties - same
+// reis-app-taf/reis-app commit+CI-run+time pair
+// check-release-readiness.mjs's report shows in its own header.
+const RUN_META_PATH = process.env.RUN_META_PATH ?? path.join('allure-results', 'run-meta.json');
 
 const LEVEL_ORDER = ['A', 'AA', 'AAA'];
 const SEVERITY_ORDER = ['critical', 'serious', 'moderate', 'minor'];
@@ -32,6 +38,7 @@ async function main() {
   const records = await Promise.all(
     jsonFiles.map(async (f) => JSON.parse(await readFile(path.join(DATA_DIR, f), 'utf8'))),
   );
+  const runMeta = await loadRunMeta();
 
   await rm(OUT_DIR, { recursive: true, force: true });
   await mkdir(path.join(OUT_DIR, 'screenshots'), { recursive: true });
@@ -45,9 +52,21 @@ async function main() {
     }
   }
 
-  const html = buildHtmlReport(records);
+  const html = buildHtmlReport(records, runMeta);
   await writeFile(path.join(OUT_DIR, 'index.html'), `${html}\n`, 'utf8');
   console.log(`Wrote ${path.join(OUT_DIR, 'index.html')} from ${records.length} scan(s).`);
+}
+
+// Missing/invalid just means this ran outside CI (no allure-results/run-
+// meta.json written yet, e.g. a local `npm run a11y:report` without first
+// running `npm run test:a11y`) - the header simply omits this section then,
+// same graceful-degradation as the other two reports.
+async function loadRunMeta() {
+  try {
+    return JSON.parse(await readFile(RUN_META_PATH, 'utf8'));
+  } catch {
+    return null;
+  }
 }
 
 function severityCounts(violations) {
@@ -64,7 +83,7 @@ function addCounts(a, b) {
   return result;
 }
 
-function buildHtmlReport(records) {
+function buildHtmlReport(records, runMeta) {
   const byLevel = new Map();
   for (const record of records) {
     if (!byLevel.has(record.level)) byLevel.set(record.level, []);
@@ -100,6 +119,7 @@ function buildHtmlReport(records) {
       belangrijkste schermen in dit project, met technische foutomschrijving
       en een screenshot per pagina waarop elke fout rood omlijnd is.
     </p>
+    ${renderRunMeta(runMeta)}
     <div class="metrics">
       <div class="metric">
         <div class="metric-value long">${escapeHtml(BASE_URL || '—')}</div>
@@ -124,6 +144,8 @@ function buildHtmlReport(records) {
     ${renderBadge(overallViolationTotal === 0, `${overallViolationTotal} violations`, 'Geen violations')}
   </header>
 
+  ${renderLevelsExplainer()}
+
   ${levels.map((level) => renderLevelSection(level, byLevel.get(level))).join('\n')}
 
   <footer class="footer">
@@ -133,6 +155,67 @@ function buildHtmlReport(records) {
 <script>${TIMESTAMP_SCRIPT}</script>
 </body>
 </html>`;
+}
+
+function renderLevelsExplainer() {
+  const rows = [
+    [
+      'A',
+      'Minimale basisvereisten. Als je hier niet aan voldoet, kunnen sommige gebruikers de website helemaal niet goed gebruiken.',
+      'Afbeeldingen moeten bijvoorbeeld een passend tekstalternatief hebben.',
+    ],
+    [
+      'AA',
+      'Het gangbare niveau voor goede toegankelijkheid. Dit is meestal het niveau waarop organisaties zich richten.',
+      'Voldoende kleurcontrast, goede toetsenbordbediening en duidelijke foutmeldingen.',
+    ],
+    [
+      'AAA',
+      'Het hoogste en strengste niveau. Niet altijd haalbaar voor alle content.',
+      'Nog hogere contrasteisen en strengere eisen voor bijvoorbeeld video en tekstbegrip.',
+    ],
+  ];
+  return `
+  <section class="levels-explainer">
+    <h2>Wat betekenen A / AA / AAA?</h2>
+    <table class="levels-table">
+      <thead>
+        <tr><th>Niveau</th><th>Betekenis</th><th>Voorbeeld</th></tr>
+      </thead>
+      <tbody>
+        ${rows
+          .map(
+            ([level, meaning, example]) => `
+        <tr>
+          <td><strong>${escapeHtml(level)}</strong></td>
+          <td>${escapeHtml(meaning)}</td>
+          <td>${escapeHtml(example)}</td>
+        </tr>`,
+          )
+          .join('')}
+      </tbody>
+    </table>
+  </section>`;
+}
+
+function renderTimestamp(ms, unknownHtml = 'unknown') {
+  if (ms == null) return unknownHtml;
+  return `<span data-ts="${ms}">${escapeHtml(new Date(ms).toISOString())}</span>`;
+}
+
+function renderRunLink(runNumber, runUrl, unknownHtml = 'unknown') {
+  if (!runNumber) return unknownHtml;
+  return runUrl ? `<a href="${escapeHtml(runUrl)}">#${runNumber}</a>` : `#${runNumber}`;
+}
+
+function renderRunMeta(runMeta) {
+  if (!runMeta) return '';
+  const { reisAppTaf, reisApp } = runMeta;
+  const tafCommit = reisAppTaf?.commit ? `<code>${escapeHtml(reisAppTaf.commit)}</code>` : 'unknown';
+  const appCommit = reisApp?.commit ? `<code>${escapeHtml(reisApp.commit)}</code>` : 'unknown';
+  return `
+    <p class="run-meta muted">reis-app-taf ${tafCommit} &middot; CI run ${renderRunLink(reisAppTaf?.runNumber, reisAppTaf?.runUrl)} &middot; ${renderTimestamp(reisAppTaf?.runTimeMs)}</p>
+    <p class="run-meta run-meta-reis-app">reis-app ${appCommit} &middot; CI run ${renderRunLink(reisApp?.runNumber, reisApp?.runUrl)} &middot; ${renderTimestamp(reisApp?.runTimeMs)}</p>`;
 }
 
 function renderLevelSection(level, levelRecords) {
@@ -243,6 +326,8 @@ const CSS = `
   --serious: #c2410c;
   --moderate: #b45309;
   --minor: #2563eb;
+  --reis-app-bg: #eef2ff;
+  --reis-app-line: #c7d2fe;
 }
 * { box-sizing: border-box; }
 body {
@@ -261,12 +346,31 @@ body {
 }
 .eyebrow { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 h1 { margin: 6px 0 12px; font-size: 28px; }
-.lede { margin: 0 0 20px; color: var(--muted); max-width: 60ch; }
+.lede { margin: 0 0 8px; color: var(--muted); max-width: 60ch; }
+.run-meta { margin: 0 0 6px; font-size: 13px; }
+.run-meta code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
+.run-meta-reis-app { margin-bottom: 16px; display: inline-block; padding: 4px 10px; border-radius: 999px; background: var(--reis-app-bg); border: 1px solid var(--reis-app-line); color: var(--text); }
+.run-meta-reis-app code { background: #ffffff; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .metric { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; overflow: hidden; }
 .metric-value { font-size: 20px; font-weight: 800; word-break: break-word; }
 .metric-value.long { font-size: 13px; font-weight: 700; word-break: break-all; }
 .metric-label { font-size: 12px; color: var(--muted); }
+.levels-explainer {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 24px 28px;
+  margin-top: 20px;
+  box-shadow: 0 12px 32px rgba(19, 34, 56, 0.06);
+}
+.levels-explainer h2 { margin: 0 0 14px; font-size: 18px; }
+.levels-table { width: 100%; border-collapse: collapse; }
+.levels-table th, .levels-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.levels-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.levels-table td { font-size: 14px; }
+.levels-table td:first-child { white-space: nowrap; font-size: 16px; }
+.levels-table tr:last-child td { border-bottom: none; }
 .level-section { margin-top: 28px; }
 .level-header { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
 .level-header h2 { margin: 0; }

@@ -1,7 +1,12 @@
 {
   "reis-app": {
-    "version": "20-7-2026, 13:51:26",
-    "commit": "6cc3de2f049ac83a36b66b4fedc084f5f9415ed8"
+    "version": "21-7-2026, 13:58:35",
+    "commit": "bd5d31db93a9bd5f5226c8c6716e65469b1a1c7f",
+    "ciRun": {
+      "number": 13,
+      "url": "https://github.com/joostdetester/reis-app/actions/runs/29828213924",
+      "time": "2026-07-21T11:58:35.000Z"
+    }
   },
   "open-meteo": {
     "version": "v1"

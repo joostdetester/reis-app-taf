@@ -6,6 +6,13 @@ import { trackedThirdPartyVersions } from './tracked-third-party-versions';
 
 const LAST_KNOWN_VERSIONS_PATH = path.join(__dirname, 'last-known-versions.json');
 const ENVIRONMENT_PROPERTIES_PATH = path.join(process.cwd(), 'allure-results', 'environment.properties');
+// Structured counterpart to environment.properties, for scripts/build-a11y-
+// report.mjs - it needs actual clickable CI-run URLs, which don't fit
+// cleanly into a flat property list (and would just be more unclickable
+// noise in Allure's own Environment widget - see the "KNOWN COSMETIC ISSUE"
+// note in ci.yml about every Environment value already rendering as a
+// broken link there).
+const RUN_META_PATH = path.join(process.cwd(), 'allure-results', 'run-meta.json');
 
 interface VersionRecord {
   version: string | null;
@@ -14,6 +21,12 @@ interface VersionRecord {
 
 type VersionMap = Record<string, VersionRecord>;
 
+interface CiRunInfo {
+  number: number;
+  url: string;
+  time: Date;
+}
+
 // reis-app's own CI workflow (a separate repo/pipeline, independent of its
 // manual `vercel --prod` deploy) run for the given commit - same "which CI
 // run produced this commit" resolution check-release-readiness.mjs's trend
@@ -21,7 +34,7 @@ type VersionMap = Record<string, VersionRecord>;
 // rather than a whole resolved history. reis-app is a public repo, so this
 // needs no token. Returns undefined (not thrown) on any failure - a
 // network hiccup here shouldn't fail the whole version-tracking write.
-async function fetchReisAppCiRunTime(commitSha: string): Promise<Date | undefined> {
+async function fetchReisAppCiRun(commitSha: string): Promise<CiRunInfo | undefined> {
   try {
     const url = `https://api.github.com/repos/joostdetester/reis-app/actions/runs?head_sha=${commitSha}&event=push`;
     const response = await fetch(url, {
@@ -31,7 +44,7 @@ async function fetchReisAppCiRunTime(commitSha: string): Promise<Date | undefine
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const json = await response.json();
     const run = (json.workflow_runs ?? []).find((r: { path?: string }) => r.path?.endsWith('/ci.yml'));
-    return run ? new Date(run.created_at) : undefined;
+    return run ? { number: run.run_number, url: run.html_url, time: new Date(run.created_at) } : undefined;
   } catch (error) {
     console.warn(`[version-tracking] Kon reis-app's CI-run niet ophalen: ${(error as Error).message}`);
     return undefined;
@@ -47,7 +60,7 @@ async function fetchReisAppCiRunTime(commitSha: string): Promise<Date | undefine
 // Falls back to "unknown" (not the original build timestamp) if the CI-run
 // lookup fails, so a transient network hiccup doesn't read as a real
 // version change in toPropertyLines' diffing below.
-async function fetchAppVersion(): Promise<VersionRecord> {
+async function fetchAppVersion(): Promise<VersionRecord & { ciRun?: CiRunInfo }> {
   try {
     const response = await fetch(new URL('/version.json', projectConfig.baseUrl), {
       signal: AbortSignal.timeout(10_000),
@@ -55,8 +68,8 @@ async function fetchAppVersion(): Promise<VersionRecord> {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const json = await response.json();
     const commit: string | undefined = json.commit;
-    const ciRunTime = commit ? await fetchReisAppCiRunTime(commit) : undefined;
-    return { version: ciRunTime ? formatDutchLocal(ciRunTime) : 'unknown', commit: commit ?? 'unknown' };
+    const ciRun = commit ? await fetchReisAppCiRun(commit) : undefined;
+    return { version: ciRun ? formatDutchLocal(ciRun.time) : 'unknown', commit: commit ?? 'unknown', ciRun };
   } catch (error) {
     console.warn(`[version-tracking] Kon ${projectConfig.baseUrl}/version.json niet ophalen: ${(error as Error).message}`);
     return { version: 'unknown' };
@@ -91,12 +104,25 @@ function formatDutchLocal(date: Date): string {
 // same way. GITHUB_SHA/GITHUB_RUN_NUMBER are always set by the Actions
 // runner; commit falls back to `git` directly for local runs (run number
 // has no local equivalent, so it's just omitted there).
-function resolveTafGitInfo(): VersionRecord & { ciRun?: string } {
+function resolveTafGitInfo(): VersionRecord & {
+  ciRun?: string;
+  ciRunNumber?: number;
+  ciRunUrl?: string;
+  timeMs: number;
+} {
   const commit = process.env.GITHUB_SHA ?? tryGit(['rev-parse', 'HEAD']);
+  const runId = process.env.GITHUB_RUN_ID;
+  const runNumber = process.env.GITHUB_RUN_NUMBER;
+  const serverUrl = process.env.GITHUB_SERVER_URL ?? 'https://github.com';
+  const repo = process.env.GITHUB_REPOSITORY;
+  const now = new Date();
   return {
-    version: formatDutchLocal(new Date()),
+    version: formatDutchLocal(now),
+    timeMs: now.getTime(),
     commit: commit ? commit.slice(0, 7) : undefined,
-    ciRun: process.env.GITHUB_RUN_NUMBER ? `#${process.env.GITHUB_RUN_NUMBER}` : undefined,
+    ciRun: runNumber ? `#${runNumber}` : undefined,
+    ciRunNumber: runNumber ? Number(runNumber) : undefined,
+    ciRunUrl: runId && repo ? `${serverUrl}/${repo}/actions/runs/${runId}` : undefined,
   };
 }
 
@@ -175,10 +201,36 @@ export async function writeVersionEnvironment(): Promise<void> {
   lines.push(`reis-app-taf.version=${tafInfo.version}`);
   if (tafInfo.commit) lines.push(`reis-app-taf.commit=${tafInfo.commit}`);
   if (tafInfo.ciRun) lines.push(`reis-app-taf.ci-run=${tafInfo.ciRun}`);
+  if (appVersion.ciRun) lines.push(`reis-app.ci-run=#${appVersion.ciRun.number}`);
 
   mkdirSync(path.dirname(ENVIRONMENT_PROPERTIES_PATH), { recursive: true });
   writeFileSync(ENVIRONMENT_PROPERTIES_PATH, lines.join('\n') + '\n');
   writeFileSync(LAST_KNOWN_VERSIONS_PATH, JSON.stringify(buildVersionsToPersist(current, previous), null, 2) + '\n');
+
+  // For scripts/build-a11y-report.mjs (see RUN_META_PATH above) - the same
+  // reis-app-taf/reis-app commit+CI-run+time pair check-release-readiness.mjs
+  // shows on its own report header, so all three reports read consistently.
+  writeFileSync(
+    RUN_META_PATH,
+    JSON.stringify(
+      {
+        reisAppTaf: {
+          commit: tafInfo.commit ?? null,
+          runNumber: tafInfo.ciRunNumber ?? null,
+          runUrl: tafInfo.ciRunUrl ?? null,
+          runTimeMs: tafInfo.timeMs,
+        },
+        reisApp: {
+          commit: appVersion.commit ?? null,
+          runNumber: appVersion.ciRun?.number ?? null,
+          runUrl: appVersion.ciRun?.url ?? null,
+          runTimeMs: appVersion.ciRun?.time.getTime() ?? null,
+        },
+      },
+      null,
+      2,
+    ) + '\n',
+  );
 
   const changes = lines.filter((line) => line.includes('.version.changed='));
   if (changes.length) {
