@@ -221,7 +221,12 @@ export async function writeVersionEnvironment(): Promise<void> {
           runTimeMs: tafInfo.timeMs,
         },
         reisApp: {
-          commit: appVersion.commit ?? null,
+          // appVersion.commit is the full SHA (also what reis-app.commit in
+          // Allure's Environment widget shows, unchanged) - shortened here
+          // to match the short-hash style everywhere else this run-meta
+          // pair is shown (release-readiness's header, reis-app-taf.commit
+          // above).
+          commit: appVersion.commit ? appVersion.commit.slice(0, 7) : null,
           runNumber: appVersion.ciRun?.number ?? null,
           runUrl: appVersion.ciRun?.url ?? null,
           runTimeMs: appVersion.ciRun?.time.getTime() ?? null,
