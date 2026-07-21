@@ -14,6 +14,39 @@ interface VersionRecord {
 
 type VersionMap = Record<string, VersionRecord>;
 
+// reis-app's own CI workflow (a separate repo/pipeline, independent of its
+// manual `vercel --prod` deploy) run for the given commit - same "which CI
+// run produced this commit" resolution check-release-readiness.mjs's trend
+// table uses, just for the single commit this run is testing against
+// rather than a whole resolved history. reis-app is a public repo, so this
+// needs no token. Returns undefined (not thrown) on any failure - a
+// network hiccup here shouldn't fail the whole version-tracking write.
+async function fetchReisAppCiRunTime(commitSha: string): Promise<Date | undefined> {
+  try {
+    const url = `https://api.github.com/repos/joostdetester/reis-app/actions/runs?head_sha=${commitSha}&event=push`;
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(10_000),
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const json = await response.json();
+    const run = (json.workflow_runs ?? []).find((r: { path?: string }) => r.path?.endsWith('/ci.yml'));
+    return run ? new Date(run.created_at) : undefined;
+  } catch (error) {
+    console.warn(`[version-tracking] Kon reis-app's CI-run niet ophalen: ${(error as Error).message}`);
+    return undefined;
+  }
+}
+
+// `version` here is deliberately *not* reis-app's own build timestamp from
+// version.json (which the raw `commit` fetch below already carries
+// alongside it) - it's the time reis-app's own CI ran for that exact
+// commit, the same signal check-release-readiness.mjs's report shows for
+// its "reis-app" column group, so the two reports read consistently side
+// by side instead of one showing a build time and the other a CI-run time.
+// Falls back to "unknown" (not the original build timestamp) if the CI-run
+// lookup fails, so a transient network hiccup doesn't read as a real
+// version change in toPropertyLines' diffing below.
 async function fetchAppVersion(): Promise<VersionRecord> {
   try {
     const response = await fetch(new URL('/version.json', projectConfig.baseUrl), {
@@ -21,18 +54,18 @@ async function fetchAppVersion(): Promise<VersionRecord> {
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const json = await response.json();
-    return { version: json.version ?? 'unknown', commit: json.commit ?? 'unknown' };
+    const commit: string | undefined = json.commit;
+    const ciRunTime = commit ? await fetchReisAppCiRunTime(commit) : undefined;
+    return { version: ciRunTime ? formatReadableUtc(ciRunTime) : 'unknown', commit: commit ?? 'unknown' };
   } catch (error) {
     console.warn(`[version-tracking] Kon ${projectConfig.baseUrl}/version.json niet ophalen: ${(error as Error).message}`);
     return { version: 'unknown' };
   }
 }
 
-// Same CalVer format reis-app's scripts/write-version.mjs uses for its own
-// version.json, so the two read consistently side by side in the widget.
-function formatCalVer(date: Date): string {
+function formatReadableUtc(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getUTCFullYear()}.${pad(date.getUTCMonth() + 1)}.${pad(date.getUTCDate())}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}`;
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
 }
 
 // This repo's own version/commit/CI run - distinct from `reis-app`'s (the
@@ -40,11 +73,11 @@ function formatCalVer(date: Date): string {
 // the Allure report's Environment widget only shows what reis-app version
 // was tested, not which reis-app-taf commit/run produced the report - so it
 // can't be traced back to its own source without cross-referencing GitHub
-// Actions. `version` is this run's own timestamp (same CalVer shape as
-// reis-app.version, so a same-day re-run of the same commit still reads as
-// distinct) - not the branch name, which is already its own separate
-// "Branch" field (see ci.yml's "Write Allure environment info" step).
-// `commit` is the plain short hash, same style as
+// Actions. `version` is this run's own start time, read the same way as
+// reis-app.version above (both show "when did the relevant CI run happen",
+// not a build timestamp) - not the branch name, which is already its own
+// separate "Branch" field (see ci.yml's "Write Allure environment info"
+// step). `commit` is the plain short hash, same style as
 // check-release-readiness.mjs's trend table, rather than this file's
 // previous "<hash> (<committer date>)" - keeps the two reports reading the
 // same way. GITHUB_SHA/GITHUB_RUN_NUMBER are always set by the Actions
@@ -53,7 +86,7 @@ function formatCalVer(date: Date): string {
 function resolveTafGitInfo(): VersionRecord & { ciRun?: string } {
   const commit = process.env.GITHUB_SHA ?? tryGit(['rev-parse', 'HEAD']);
   return {
-    version: formatCalVer(new Date()),
+    version: formatReadableUtc(new Date()),
     commit: commit ? commit.slice(0, 7) : undefined,
     ciRun: process.env.GITHUB_RUN_NUMBER ? `#${process.env.GITHUB_RUN_NUMBER}` : undefined,
   };
