@@ -8,6 +8,10 @@ on:
     branches: [main, acceptance]
   pull_request:
     branches: [main, acceptance]
+  # Lets a run be started on demand (e.g. to demo a specific finding)
+  # without needing a throwaway commit - runs against whichever branch is
+  # selected when triggered, same jobs/gates as a normal push.
+  workflow_dispatch:
 
 jobs:
   lint:
