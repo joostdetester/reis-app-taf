@@ -26,7 +26,7 @@ rather than silently skipped.
 | A02 Cryptographic Failures | Medium | `@security` — the edit token must not linger in the visible URL (`features/security.feature`). |
 | A03 Injection | Medium | `@security` — XSS smoke test on the trip search field (`features/security.feature`). |
 | A04 Insecure Design | Low | N/A — small single-tenant app with no bespoke auth architecture. |
-| A05 Security Misconfiguration | Medium | `@security` — response-headers check. Currently only asserts HSTS (the only one present); see Known gaps below. |
+| A05 Security Misconfiguration | Medium | `@security` — response-headers check. Asserts HSTS, CSP, X-Frame-Options and X-Content-Type-Options (`features/security.feature`). |
 | A06 Vulnerable & Outdated Components | High | `npm audit --audit-level=high` in the `security` CI job, plus manual `npm audit`/`npm outdated` on both repos (phase 3, periodic). |
 | A07 Identification & Auth Failures | Low | No user accounts, only a link token — overlaps with A01. |
 | A08 Software & Data Integrity Failures | Low | No supply chain beyond regular npm dependencies. |
@@ -47,18 +47,6 @@ rather than silently skipped.
 - **OWASP ZAP baseline scan, manual devtools check.** Phase 3 — deliberately
   manual/periodic, not CI, and only ever against test/acceptance
   environments, never production with real family data.
-
-## Known gap: missing response headers
-
-Confirmed live against `BASE_URL` (2026-07-17): the app's response only
-sets `Strict-Transport-Security`. It's missing `Content-Security-Policy`,
-`X-Frame-Options` (or a CSP `frame-ancestors` equivalent), and
-`X-Content-Type-Options`. `features/security.feature`'s headers scenario
-only asserts on HSTS (the one header actually present) rather than encoding
-a permanently-failing assertion for the others — this is tracked as a
-known, undone fix in `reis-app` (likely a `vercel.json` `headers` block),
-not something to silently paper over with a red test. Widen that scenario's
-assertions once the fix lands.
 
 ## Tags
 

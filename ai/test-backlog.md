@@ -111,7 +111,7 @@ Zie `ai/security-testing.md` voor scope en OWASP-mapping.
 - ✅ Edit-token blijft niet zichtbaar in de adresbalk (ook niet na een reload) *(bevestigd: 2026-07-20)*
 - ✅ Zoekveld verwerkt een script-injection payload veilig (geen dialog, geen match) *(bevestigd: 2026-07-20)*
 - ✅ App-response zet Strict-Transport-Security *(bevestigd: 2026-07-20)*
-- 📝 App-response zet Content-Security-Policy / X-Frame-Options / X-Content-Type-Options — **blokkade opgeheven**: `reis-app` zet deze headers nu (`vercel.json`, commit "Add security response headers"), live geverifieerd met `curl -sI` tegen productie op 2026-07-20 (alle 3 aanwezig). Er bestaat alleen nog geen Gherkin-scenario dat dit assert — `features/security.feature`'s OWASP A05-scenario checkt nu alleen STS, moet uitgebreid worden.
+- ✅ App-response zet Content-Security-Policy / X-Frame-Options / X-Content-Type-Options — `reis-app` zet deze headers (`vercel.json`, commit "Add security response headers"), live geverifieerd met `curl -sI` tegen productie op 2026-07-21 (alle 3 aanwezig). `features/security.feature`'s OWASP A05-scenario assert nu ook CSP, X-Frame-Options en X-Content-Type-Options naast STS.
 - 📝 `npm audit` / `npm outdated` op beide repo's (handmatig, fase 3)
 - 📝 OWASP ZAP baseline-scan tegen test-/acceptance-omgeving (handmatig, fase 3, nooit tegen productie)
 - ✅ `security`-job in CI (`npm run test:security` + `npm audit --audit-level=high`), eigen Allure-suite naast E2E/Accessibility/Visual Regression *(bevestigd: 2026-07-20)*

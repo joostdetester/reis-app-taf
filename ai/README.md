@@ -24,6 +24,8 @@ Contents:
   working feature/steps/page-object set.
 - `agent-template.md` — template for documenting an agent, if this project
   adds one.
+- `improvement-checklist.md` — openstaande verbeteringen voor deze repo,
+  geprioriteerd, om één voor één af te vinken.
 
 Quick start
 

@@ -24,12 +24,11 @@ Vink af en voeg een datum/commit-referentie toe zodra iets is opgepakt.
       `release-readiness`.
 - [x] **Security headers laten fixen in reis-app.** ~~CSP, X-Frame-Options en
       X-Content-Type-Options ontbreken echt~~ — opgelost in reis-app
-      (`vercel.json`, commit "Add security response headers", 2026-07-20),
-      live geverifieerd met `curl -sI` tegen productie (alle 3 aanwezig).
-      **Nog open:** het scenario in `features/security.feature` (OWASP A05)
-      checkt nog alleen Strict-Transport-Security — uitbreiden om CSP/
-      X-Frame-Options/X-Content-Type-Options ook echt te asserten staat nog
-      niet gebouwd, zie `ai/test-backlog.md`.
+      (`vercel.json`, commit "Add security response headers"), gedeployed
+      naar productie en live geverifieerd met `curl -sI` op 2026-07-21 (alle
+      3 aanwezig). Het scenario in `features/security.feature` (OWASP A05)
+      assert nu ook CSP/X-Frame-Options/X-Content-Type-Options naast STS
+      (`steps/security.steps.ts`).
 - [ ] **"Opslaan" persisteert de wijziging" testen.** Nu geblokkeerd omdat
       write-tests anders de echte gezinsreisdata overschrijven — vereist
       een los test-/staging-endpoint in reis-app. Grootste functionele

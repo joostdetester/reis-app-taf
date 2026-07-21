@@ -19,6 +19,9 @@ Feature: Security
     Then no dialog is triggered by the search
     And no day matches the payload
 
-  Scenario: OWASP A05 (Security Misconfiguration) - The app response sets baseline transport-security headers
+  Scenario: OWASP A05 (Security Misconfiguration) - The app response sets baseline security headers
     Given the user requests the app over HTTPS
     Then the response sets Strict-Transport-Security
+    And the response sets Content-Security-Policy
+    And the response sets X-Frame-Options
+    And the response sets X-Content-Type-Options

@@ -78,13 +78,15 @@ Then('no day matches the payload', async ({ page }) => {
 
 Given('the user requests the app over HTTPS', async ({ page, world }) => {
   await describeScenario(
-    'Checks that the app sets the Strict-Transport-Security (HSTS) header. ' +
-      'Without it, a user who ever connects over plain HTTP (e.g. an old ' +
-      '`http://` link) risks an SSL-stripping man-in-the-middle attack; ' +
-      'HSTS tells the browser to only ever use HTTPS for this site from now ' +
-      'on. Only HSTS is asserted here - the app is also missing ' +
-      'Content-Security-Policy, X-Frame-Options and X-Content-Type-Options, ' +
-      'tracked as a known gap in ai/security-testing.md.',
+    'Checks that the app response sets baseline security headers: ' +
+      'Strict-Transport-Security (HSTS), Content-Security-Policy, ' +
+      'X-Frame-Options and X-Content-Type-Options. HSTS stops a user who ' +
+      'ever connects over plain HTTP (e.g. an old `http://` link) from ' +
+      'being SSL-stripped; CSP restricts which scripts/styles/resources may ' +
+      'load, limiting the blast radius of an XSS bug; X-Frame-Options ' +
+      "blocks clickjacking by refusing to render the app in another site's " +
+      'frame; X-Content-Type-Options stops the browser from MIME-sniffing ' +
+      'a response into executable content.',
   );
   const response = await page.goto('/');
   world.mainResponse = response;
@@ -93,4 +95,19 @@ Given('the user requests the app over HTTPS', async ({ page, world }) => {
 Then('the response sets Strict-Transport-Security', async ({ world }) => {
   const headers = world.mainResponse.headers();
   expect(headers['strict-transport-security']).toBeTruthy();
+});
+
+Then('the response sets Content-Security-Policy', async ({ world }) => {
+  const headers = world.mainResponse.headers();
+  expect(headers['content-security-policy']).toBeTruthy();
+});
+
+Then('the response sets X-Frame-Options', async ({ world }) => {
+  const headers = world.mainResponse.headers();
+  expect(headers['x-frame-options']).toBeTruthy();
+});
+
+Then('the response sets X-Content-Type-Options', async ({ world }) => {
+  const headers = world.mainResponse.headers();
+  expect(headers['x-content-type-options']).toBeTruthy();
 });
