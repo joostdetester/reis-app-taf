@@ -14,12 +14,13 @@ const A11Y_DATA_DIR = process.env.A11Y_REPORT_DATA_DIR ?? 'a11y-report-data';
 const OUT_DIR = process.env.RELEASE_READINESS_OUT_DIR ?? 'release-readiness-report';
 const ALLURE_HISTORY_PATH = path.join(RESULTS_DIR, 'history', 'history.json');
 const REIS_APP_REPO_DIR = process.env.REIS_APP_REPO_DIR ?? 'reis-app-repo';
-// This repo's own build metadata (run number, run URL, commit) - fetched
-// from the previously published report the same way ALLURE_HISTORY_PATH is,
-// and appended to below (see loadRunLog/appendRunLog). Allure's own
-// history.json has no room for this - see the comment on appendRunLog.
-const RUN_LOG_PATH = process.env.RUN_LOG_PATH ?? 'release-readiness-run-log.json';
-const RUN_LOG_RETENTION = 50;
+// This repo's own working directory - a full (not shallow) checkout in CI,
+// see ci.yml - so its commit history can be walked the same way
+// REIS_APP_REPO_DIR's is.
+const REIS_APP_TAF_REPO_DIR = process.env.REIS_APP_TAF_REPO_DIR ?? '.';
+// GitHub's own record of this workflow's past runs (`gh run list`, fetched
+// by ci.yml before this script runs) - see loadCiRunHistory.
+const CI_RUN_HISTORY_PATH = process.env.CI_RUN_HISTORY_PATH ?? 'ci-run-history.json';
 
 // Visual Regression is currently disabled in CI (playwright.config.ts's
 // Today-page baseline goes stale on its own with the real calendar date -
@@ -119,15 +120,16 @@ async function main() {
   const generatedAt = new Date().toISOString();
   const latestByHistoryId = await loadLatestAllureResults();
   const allureHistory = await loadAllureHistory();
-  const reisAppTimeline = loadReisAppCommitTimeline();
-  const runLog = appendRunLog(await loadRunLog(), buildCurrentRunEntry(new Date(generatedAt).getTime()));
+  const reisAppTimeline = loadCommitTimeline(REIS_APP_REPO_DIR);
+  const reisAppTafTimeline = loadCommitTimeline(REIS_APP_TAF_REPO_DIR);
+  const ciRunHistory = await loadCiRunHistory();
 
   const {
     buckets: e2eBuckets,
     knownIssues,
     unknownIssues,
     totalE2e,
-  } = computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, runLog);
+  } = computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory);
   const { levels: accessibilityLevels, totalA11y } = await computeAccessibilityLevels(latestByHistoryId);
   const security = computeSecurity(latestByHistoryId);
 
@@ -135,7 +137,6 @@ async function main() {
     e2eBuckets.every((b) => b.ready) && accessibilityLevels.every((l) => l.ready) && security.ready;
 
   await mkdir(OUT_DIR, { recursive: true });
-  await writeFile(path.join(OUT_DIR, 'run-log.json'), JSON.stringify(runLog, null, 2));
   await writeFile(
     path.join(OUT_DIR, 'data.json'),
     JSON.stringify(
@@ -257,80 +258,16 @@ async function loadAllureHistory() {
   }
 }
 
-// Fetched from the previously published report by ci.yml (same pattern as
-// loadAllureHistory), before this script runs. Missing/invalid just means
-// this branch's very first run, or the fetch step failed - start empty
-// rather than fail the gate over it.
-async function loadRunLog() {
-  try {
-    const raw = JSON.parse(await readFile(RUN_LOG_PATH, 'utf-8'));
-    return Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
-}
-
-// GITHUB_RUN_NUMBER/GITHUB_RUN_ID/GITHUB_SERVER_URL/GITHUB_REPOSITORY/
-// GITHUB_SHA are GitHub Actions' own default env vars, present in every
-// step without any explicit `env:` wiring in ci.yml. All fall back to null
-// for a local run outside CI.
-function buildCurrentRunEntry(generatedAtMs) {
-  const runId = process.env.GITHUB_RUN_ID;
-  const serverUrl = process.env.GITHUB_SERVER_URL;
-  const repo = process.env.GITHUB_REPOSITORY;
-  return {
-    generatedAtMs,
-    runNumber: process.env.GITHUB_RUN_NUMBER ? Number(process.env.GITHUB_RUN_NUMBER) : null,
-    runUrl: runId && serverUrl && repo ? `${serverUrl}/${repo}/actions/runs/${runId}` : null,
-    tafCommit: process.env.GITHUB_SHA ? process.env.GITHUB_SHA.slice(0, 7) : null,
-  };
-}
-
-// Allure's own per-test history.json (loadAllureHistory) has no room for
-// this repo's own build metadata - it only ever records a test's own
-// status/timestamp, nothing about which CI build produced it. Kept here
-// instead: one entry per release-readiness run (not per test, unlike
-// Allure's history), oldest-first, deduped by run number (a re-run of this
-// same script/job shouldn't add a second entry) and capped so the file
-// doesn't grow unbounded.
-function appendRunLog(runLog, currentEntry) {
-  const deduped = runLog.filter((r) => r.runNumber !== currentEntry.runNumber);
-  return [...deduped, currentEntry].sort((a, b) => a.generatedAtMs - b.generatedAtMs).slice(-RUN_LOG_RETENTION);
-}
-
-// A test's own timestamp is always a few minutes before the
-// release-readiness run that captured it (the test jobs finish, then this
-// job downloads their results and computes) - normally well under this.
-// Generous on purpose to tolerate CI queueing delays without starting to
-// misattribute a genuinely different run.
-const RUN_LOG_MATCH_WINDOW_MS = 15 * 60 * 1000;
-
-// The earliest logged run whose generation time is at or after the given
-// test timestamp - i.e. the run that actually produced/published this test
-// execution - but only if it's actually close enough to plausibly be that
-// run. Without the window check, a test older than this file's own history
-// (e.g. every run before this feature shipped) would incorrectly match
-// whatever the *next* logged run happens to be, however much later that
-// is - confirmed live: with only one entry logged so far, every older row
-// in the trend table showed that one run's own metadata. Returns null
-// (rendered as "unknown") when nothing plausible is on record yet.
-function resolveRunAt(runLog, timestampMs) {
-  for (const run of runLog) {
-    if (run.generatedAtMs < timestampMs) continue;
-    return run.generatedAtMs - timestampMs <= RUN_LOG_MATCH_WINDOW_MS ? run : null;
-  }
-  return null;
-}
-
-// reis-app is a separate, public repo checked out alongside this one purely
-// so a known issue's success streak can show *which reis-app version* it
-// started passing against. Returns commits oldest-first with their
-// committer-date timestamp, or null if the checkout isn't present (e.g. the
-// best-effort CI step failed, or a local run with no REIS_APP_REPO_DIR).
-function loadReisAppCommitTimeline() {
+// Shared by both reis-app (REIS_APP_REPO_DIR, a separate checkout) and this
+// repo itself (REIS_APP_TAF_REPO_DIR, the job's own checkout - needs
+// fetch-depth: 0 in ci.yml, unlike the default shallow clone). Returns
+// commits oldest-first with their committer-date timestamp, or null if the
+// checkout isn't present/isn't a full clone (e.g. a best-effort CI step
+// failed, or a local run with no REIS_APP_REPO_DIR).
+function loadCommitTimeline(repoDir) {
   try {
     const output = execFileSync('git', ['log', '--format=%H %cI'], {
-      cwd: REIS_APP_REPO_DIR,
+      cwd: repoDir,
       encoding: 'utf-8',
     });
     return output
@@ -350,12 +287,12 @@ function loadReisAppCommitTimeline() {
   }
 }
 
-// The newest reis-app commit at or before the given timestamp - an
-// approximation of "what was live at the time", not a guarantee: reis-app
-// deploys are manual (`vercel --prod`), not triggered automatically per
-// commit, so a commit's own timestamp isn't necessarily when it actually
-// went live. See ai/release-readiness.md.
-function resolveReisAppCommitAt(timeline, timestampMs) {
+// The newest commit at or before the given timestamp - an approximation of
+// "what was checked out/live at the time", not a guarantee: for reis-app in
+// particular, deploys are manual (`vercel --prod`), not triggered
+// automatically per commit, so a commit's own timestamp isn't necessarily
+// when it actually went live. See ai/release-readiness.md.
+function resolveCommitAt(timeline, timestampMs) {
   if (!timeline?.length) return null;
   let result = null;
   for (const commit of timeline) {
@@ -365,11 +302,58 @@ function resolveReisAppCommitAt(timeline, timestampMs) {
   return result ? result.hash.slice(0, 7) : null;
 }
 
+// GitHub's own record of this workflow's past runs on this branch (`gh run
+// list`, fetched by ci.yml as CI_RUN_HISTORY_PATH before this script runs) -
+// unlike a self-maintained log, every historical run is already present, no
+// warm-up period needed for old trend rows to resolve. Sorted oldest-first,
+// same shape as loadCommitTimeline's output. Missing/invalid just means the
+// fetch step failed or this ran outside CI - the CI-run column then shows
+// "unknown" everywhere rather than failing the gate over it.
+async function loadCiRunHistory() {
+  try {
+    const raw = JSON.parse(await readFile(CI_RUN_HISTORY_PATH, 'utf-8'));
+    if (!Array.isArray(raw)) return [];
+    const serverUrl = process.env.GITHUB_SERVER_URL ?? 'https://github.com';
+    const repo = process.env.GITHUB_REPOSITORY;
+    return raw
+      .map((run) => ({
+        runNumber: run.number,
+        runUrl: repo && run.databaseId ? `${serverUrl}/${repo}/actions/runs/${run.databaseId}` : null,
+        commit: typeof run.headSha === 'string' ? run.headSha.slice(0, 7) : null,
+        createdAtMs: new Date(run.createdAt).getTime(),
+      }))
+      .sort((a, b) => a.createdAtMs - b.createdAtMs);
+  } catch {
+    return [];
+  }
+}
+
+// A test's own timestamp always falls sometime after its own CI run started
+// (`createdAt`) and before that run finished - by a few minutes at most,
+// given this workflow's job durations. Generous on purpose to tolerate CI
+// queueing delays without starting to misattribute an earlier run.
+const CI_RUN_MATCH_WINDOW_MS = 30 * 60 * 1000;
+
+// The most recent CI run that had already started at or before the given
+// test timestamp - i.e. the run that was actually in progress when this
+// test ran - but only if it's close enough to plausibly be that run.
+// Returns null (rendered as "unknown") when nothing plausible is on record,
+// e.g. `gh run list`'s own --limit cutting off before this test's time.
+function resolveRunAt(ciRunHistory, timestampMs) {
+  let result = null;
+  for (const run of ciRunHistory) {
+    if (run.createdAtMs > timestampMs) break;
+    result = run;
+  }
+  if (!result) return null;
+  return timestampMs - result.createdAtMs <= CI_RUN_MATCH_WINDOW_MS ? result : null;
+}
+
 // Success rate, current pass streak, and (if reis-app's history is
 // available) the streak's starting reis-app version, for a single known
 // issue - purely additional context alongside the hard pass/fail count
 // already gating the release, not itself part of the gate.
-function buildIssueTrend(test, allureHistory, reisAppTimeline, runLog) {
+function buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory) {
   const entry = test.historyId ? allureHistory?.[test.historyId] : undefined;
   const publishedItems = entry?.items ?? []; // newest-first, per Allure's own ordering
 
@@ -399,17 +383,17 @@ function buildIssueTrend(test, allureHistory, reisAppTimeline, runLog) {
     streak++;
   }
   const streakSinceVersion =
-    streak > 0 ? resolveReisAppCommitAt(reisAppTimeline, items[streak - 1].time.start) : null;
+    streak > 0 ? resolveCommitAt(reisAppTimeline, items[streak - 1].time.start) : null;
 
   const runs = items.map((item) => {
-    const run = resolveRunAt(runLog, item.time.start);
+    const run = resolveRunAt(ciRunHistory, item.time.start);
     return {
       timestampMs: item.time.start,
       status: item.status,
-      reisAppVersion: resolveReisAppCommitAt(reisAppTimeline, item.time.start),
+      reisAppVersion: resolveCommitAt(reisAppTimeline, item.time.start),
+      tafCommit: resolveCommitAt(reisAppTafTimeline, item.time.start),
       tafRunNumber: run?.runNumber ?? null,
       tafRunUrl: run?.runUrl ?? null,
-      tafCommit: run?.tafCommit ?? null,
     };
   });
 
@@ -429,7 +413,7 @@ function formatTrendLogLabel(trend) {
   return ` - success rate ${trend.successRatePercent}% (${trend.passed}/${trend.total}), streak ${trend.streak}${since}`;
 }
 
-function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, runLog) {
+function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory) {
   const counts = Object.fromEntries(
     E2E_RISK_BUCKETS.map((b) => [b.key, { total: 0, passed: 0, failures: 0 }]),
   );
@@ -456,7 +440,7 @@ function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, ru
           ticket,
           riskLabel,
           status: 'passing',
-          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, runLog),
+          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory),
         });
       }
     } else if (isFailure(test.status)) {
@@ -467,14 +451,14 @@ function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, ru
           ticket,
           riskLabel,
           status: 'failing',
-          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, runLog),
+          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory),
         });
       } else {
         unknownIssues.push({
           name: test.name,
           riskLabel,
           status: 'failing',
-          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, runLog),
+          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory),
         });
       }
     }

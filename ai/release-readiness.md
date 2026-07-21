@@ -113,13 +113,26 @@ computed.
 
 Expanding "Last N runs" on a row shows the full breakdown per run: timestamp,
 this repo's own commit and CI run (e.g. `#103`, linking back to the Actions
-run), status, and resolved reis-app version. The repo/CI-run columns come
-from a separate small log this script maintains itself
-(`release-readiness-run-log.json`, one entry per `release-readiness` run,
-fetched/republished the same way as Allure's history) - Allure's own history
-has no room for that metadata. Since this only started being recorded from
-the run that added it, older rows still inside the 20-run window show
-"unknown" there until they roll off.
+run), status, and resolved reis-app version. Allure's own history has no
+room for either piece of extra metadata, so both are resolved independently,
+retroactively, for every row - no warm-up period where older rows show
+"unknown" (past commits/runs already exist, unlike a log this script would
+have to build up run by run):
+
+- **reis-app-taf version** - same "newest commit at or before this
+  timestamp" resolution as the reis-app version column below, just walked
+  against this repo's own git history instead (`git log` in the job's own
+  checkout, which needs `fetch-depth: 0` in `ci.yml` - the default shallow
+  clone only has the one commit currently checked out).
+- **CI run** - GitHub's own record of past runs of this workflow on this
+  branch (`gh run list`, fetched by `ci.yml`'s "Fetch CI run history" step
+  before this script runs), matched to the most recent run that had already
+  started at or before the test's own timestamp.
+
+Both fall back to "unknown" only if the underlying fetch failed (e.g. a
+non-full clone, or the `gh run list` step erroring) or the closest match is
+implausibly far from the test's own timestamp - a sanity check against
+mismatching to the wrong run entirely if either fetch came back incomplete.
 
 If a streak of consecutive passes is currently active, the row also names
 which reis-app commit was live when that streak started (e.g. "8 in a row,

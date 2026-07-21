@@ -361,6 +361,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [accessibility, playwright, security]
     if: always()
+    # actions/checkout below needs `contents: read` (implicit default, made
+    # explicit here) plus `actions: read` for the `gh run list` step further
+    # down, which correlates a historical trend row's timestamp back to the
+    # reis-app-taf CI run/commit that produced it.
+    permissions:
+      contents: read
+      actions: read
     # Points at the report's eventual home (<branch>/release-readiness/) so
     # the URL badge shows up on this job the same way test-summary's does -
     # separate environment name (not github-pages-<branch>) so it doesn't
@@ -372,7 +379,14 @@ jobs:
       name: release-readiness-${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) }}
       url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) }}/release-readiness/
     steps:
+      # fetch-depth: 0 (full history, not the default shallow clone) - the
+      # trend table's "reis-app-taf version" column resolves "which commit
+      # was HEAD at this historical test's timestamp" the same way it
+      # already does for reis-app's own version (see
+      # loadReisAppTafCommitTimeline in check-release-readiness.mjs).
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -440,18 +454,25 @@ jobs:
           path: reis-app-repo
           fetch-depth: 0
 
-      # This repo's own build metadata (run number, run URL, commit) per
-      # past run - Allure's history.json (fetched above) has no room for it.
-      # See scripts/check-release-readiness.mjs's appendRunLog/resolveRunAt.
-      # Best-effort, same as the history.json fetch above: missing/404 just
-      # means this branch's very first run, start empty.
-      - name: Fetch previous release-readiness run log
+      # This repo's own CI run number/URL per past run - Allure's
+      # history.json (fetched above) has no room for it, and unlike the
+      # commit column (resolved from git log above), a run number is
+      # GitHub-Actions-specific metadata that isn't in git history at all.
+      # `gh run list` gives the full run history straight from GitHub
+      # (unlike a self-populated log, this needs no warm-up period - every
+      # historical trend row can resolve immediately). Scoped to this
+      # workflow/branch/push-only, matching what actually gets published
+      # (see test-summary's own `github.event_name != 'pull_request'`
+      # skip). Best-effort: if this ever fails, the script just omits the
+      # CI-run column rather than failing the gate.
+      - name: Fetch CI run history (for trend table's CI-run column)
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          REPO_NAME="${GITHUB_REPOSITORY#*/}"
           BRANCH="${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) }}"
-          PAGES_URL="https://${{ github.repository_owner }}.github.io/${REPO_NAME}/${BRANCH}/release-readiness/"
-          curl -fsSL "${PAGES_URL}run-log.json" -o release-readiness-run-log.json 2>/dev/null || echo "[]" > release-readiness-run-log.json
+          gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch "$BRANCH" --event push \
+            --json databaseId,number,headSha,createdAt --limit 100 > ci-run-history.json || echo "[]" > ci-run-history.json
 
       # Exit code from this step is the gate itself - a non-zero exit (not
       # every suite at 100% pass) fails this job.
