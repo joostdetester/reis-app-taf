@@ -298,13 +298,26 @@ function appendRunLog(runLog, currentEntry) {
   return [...deduped, currentEntry].sort((a, b) => a.generatedAtMs - b.generatedAtMs).slice(-RUN_LOG_RETENTION);
 }
 
+// A test's own timestamp is always a few minutes before the
+// release-readiness run that captured it (the test jobs finish, then this
+// job downloads their results and computes) - normally well under this.
+// Generous on purpose to tolerate CI queueing delays without starting to
+// misattribute a genuinely different run.
+const RUN_LOG_MATCH_WINDOW_MS = 15 * 60 * 1000;
+
 // The earliest logged run whose generation time is at or after the given
 // test timestamp - i.e. the run that actually produced/published this test
-// execution. Returns null for a test that predates this file's own history
-// (nothing was recorded yet at that point) - rendered as "unknown".
+// execution - but only if it's actually close enough to plausibly be that
+// run. Without the window check, a test older than this file's own history
+// (e.g. every run before this feature shipped) would incorrectly match
+// whatever the *next* logged run happens to be, however much later that
+// is - confirmed live: with only one entry logged so far, every older row
+// in the trend table showed that one run's own metadata. Returns null
+// (rendered as "unknown") when nothing plausible is on record yet.
 function resolveRunAt(runLog, timestampMs) {
   for (const run of runLog) {
-    if (run.generatedAtMs >= timestampMs) return run;
+    if (run.generatedAtMs < timestampMs) continue;
+    return run.generatedAtMs - timestampMs <= RUN_LOG_MATCH_WINDOW_MS ? run : null;
   }
   return null;
 }
