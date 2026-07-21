@@ -14,6 +14,12 @@ const A11Y_DATA_DIR = process.env.A11Y_REPORT_DATA_DIR ?? 'a11y-report-data';
 const OUT_DIR = process.env.RELEASE_READINESS_OUT_DIR ?? 'release-readiness-report';
 const ALLURE_HISTORY_PATH = path.join(RESULTS_DIR, 'history', 'history.json');
 const REIS_APP_REPO_DIR = process.env.REIS_APP_REPO_DIR ?? 'reis-app-repo';
+// This repo's own build metadata (run number, run URL, commit) - fetched
+// from the previously published report the same way ALLURE_HISTORY_PATH is,
+// and appended to below (see loadRunLog/appendRunLog). Allure's own
+// history.json has no room for this - see the comment on appendRunLog.
+const RUN_LOG_PATH = process.env.RUN_LOG_PATH ?? 'release-readiness-run-log.json';
+const RUN_LOG_RETENTION = 50;
 
 // Visual Regression is currently disabled in CI (playwright.config.ts's
 // Today-page baseline goes stale on its own with the real calendar date -
@@ -110,24 +116,26 @@ const HARD_FAILURE_IMPACT = 'critical';
 const SECURITY_THRESHOLD_LABEL = '100% pass (0 failed/broken)';
 
 async function main() {
+  const generatedAt = new Date().toISOString();
   const latestByHistoryId = await loadLatestAllureResults();
   const allureHistory = await loadAllureHistory();
   const reisAppTimeline = loadReisAppCommitTimeline();
+  const runLog = appendRunLog(await loadRunLog(), buildCurrentRunEntry(new Date(generatedAt).getTime()));
 
   const {
     buckets: e2eBuckets,
     knownIssues,
     unknownIssues,
     totalE2e,
-  } = computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline);
+  } = computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, runLog);
   const { levels: accessibilityLevels, totalA11y } = await computeAccessibilityLevels(latestByHistoryId);
   const security = computeSecurity(latestByHistoryId);
 
   const overallReady =
     e2eBuckets.every((b) => b.ready) && accessibilityLevels.every((l) => l.ready) && security.ready;
-  const generatedAt = new Date().toISOString();
 
   await mkdir(OUT_DIR, { recursive: true });
+  await writeFile(path.join(OUT_DIR, 'run-log.json'), JSON.stringify(runLog, null, 2));
   await writeFile(
     path.join(OUT_DIR, 'data.json'),
     JSON.stringify(
@@ -216,6 +224,7 @@ async function loadLatestAllureResults() {
       latestByHistoryId.set(key, {
         name: raw.name,
         status: raw.status,
+        start: raw.start,
         stop: raw.stop,
         historyId: raw.historyId,
         parentSuite: labels.find((l) => l.name === 'parentSuite')?.value,
@@ -246,6 +255,58 @@ async function loadAllureHistory() {
   } catch {
     return null;
   }
+}
+
+// Fetched from the previously published report by ci.yml (same pattern as
+// loadAllureHistory), before this script runs. Missing/invalid just means
+// this branch's very first run, or the fetch step failed - start empty
+// rather than fail the gate over it.
+async function loadRunLog() {
+  try {
+    const raw = JSON.parse(await readFile(RUN_LOG_PATH, 'utf-8'));
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+// GITHUB_RUN_NUMBER/GITHUB_RUN_ID/GITHUB_SERVER_URL/GITHUB_REPOSITORY/
+// GITHUB_SHA are GitHub Actions' own default env vars, present in every
+// step without any explicit `env:` wiring in ci.yml. All fall back to null
+// for a local run outside CI.
+function buildCurrentRunEntry(generatedAtMs) {
+  const runId = process.env.GITHUB_RUN_ID;
+  const serverUrl = process.env.GITHUB_SERVER_URL;
+  const repo = process.env.GITHUB_REPOSITORY;
+  return {
+    generatedAtMs,
+    runNumber: process.env.GITHUB_RUN_NUMBER ? Number(process.env.GITHUB_RUN_NUMBER) : null,
+    runUrl: runId && serverUrl && repo ? `${serverUrl}/${repo}/actions/runs/${runId}` : null,
+    tafCommit: process.env.GITHUB_SHA ? process.env.GITHUB_SHA.slice(0, 7) : null,
+  };
+}
+
+// Allure's own per-test history.json (loadAllureHistory) has no room for
+// this repo's own build metadata - it only ever records a test's own
+// status/timestamp, nothing about which CI build produced it. Kept here
+// instead: one entry per release-readiness run (not per test, unlike
+// Allure's history), oldest-first, deduped by run number (a re-run of this
+// same script/job shouldn't add a second entry) and capped so the file
+// doesn't grow unbounded.
+function appendRunLog(runLog, currentEntry) {
+  const deduped = runLog.filter((r) => r.runNumber !== currentEntry.runNumber);
+  return [...deduped, currentEntry].sort((a, b) => a.generatedAtMs - b.generatedAtMs).slice(-RUN_LOG_RETENTION);
+}
+
+// The earliest logged run whose generation time is at or after the given
+// test timestamp - i.e. the run that actually produced/published this test
+// execution. Returns null for a test that predates this file's own history
+// (nothing was recorded yet at that point) - rendered as "unknown".
+function resolveRunAt(runLog, timestampMs) {
+  for (const run of runLog) {
+    if (run.generatedAtMs >= timestampMs) return run;
+  }
+  return null;
 }
 
 // reis-app is a separate, public repo checked out alongside this one purely
@@ -295,11 +356,27 @@ function resolveReisAppCommitAt(timeline, timestampMs) {
 // available) the streak's starting reis-app version, for a single known
 // issue - purely additional context alongside the hard pass/fail count
 // already gating the release, not itself part of the gate.
-function buildIssueTrend(historyId, allureHistory, reisAppTimeline) {
-  const entry = historyId ? allureHistory?.[historyId] : undefined;
-  if (!entry?.items?.length) return null;
+function buildIssueTrend(test, allureHistory, reisAppTimeline, runLog) {
+  const entry = test.historyId ? allureHistory?.[test.historyId] : undefined;
+  const publishedItems = entry?.items ?? []; // newest-first, per Allure's own ordering
 
-  const items = entry.items; // newest-first, per Allure's own ordering
+  // Allure's own history.json for this branch is only refreshed by the Test
+  // Summary job, which (see ci.yml) always runs *after* this one in the
+  // same workflow run - so publishedItems never yet contains this run's own
+  // result. Prepend it directly from this run's own data rather than always
+  // showing a trend that's one run behind.
+  const currentTimestamp = test.start ?? test.stop;
+  const alreadyPublished =
+    currentTimestamp != null && publishedItems.some((item) => item.time?.start === currentTimestamp);
+  const rawItems =
+    currentTimestamp != null && !alreadyPublished
+      ? [{ status: test.status, time: { start: currentTimestamp } }, ...publishedItems]
+      : publishedItems;
+  if (!rawItems.length) return null;
+
+  // Cap back to Allure's own 20-run retention window now that the prepend
+  // above may have pushed it to 21.
+  const items = rawItems.slice(0, 20);
   const total = items.length;
   const passed = items.filter((item) => item.status === 'passed').length;
 
@@ -311,11 +388,17 @@ function buildIssueTrend(historyId, allureHistory, reisAppTimeline) {
   const streakSinceVersion =
     streak > 0 ? resolveReisAppCommitAt(reisAppTimeline, items[streak - 1].time.start) : null;
 
-  const runs = items.map((item) => ({
-    timestampMs: item.time.start,
-    status: item.status,
-    reisAppVersion: resolveReisAppCommitAt(reisAppTimeline, item.time.start),
-  }));
+  const runs = items.map((item) => {
+    const run = resolveRunAt(runLog, item.time.start);
+    return {
+      timestampMs: item.time.start,
+      status: item.status,
+      reisAppVersion: resolveReisAppCommitAt(reisAppTimeline, item.time.start),
+      tafRunNumber: run?.runNumber ?? null,
+      tafRunUrl: run?.runUrl ?? null,
+      tafCommit: run?.tafCommit ?? null,
+    };
+  });
 
   return {
     total,
@@ -333,7 +416,7 @@ function formatTrendLogLabel(trend) {
   return ` - success rate ${trend.successRatePercent}% (${trend.passed}/${trend.total}), streak ${trend.streak}${since}`;
 }
 
-function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline) {
+function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, runLog) {
   const counts = Object.fromEntries(
     E2E_RISK_BUCKETS.map((b) => [b.key, { total: 0, passed: 0, failures: 0 }]),
   );
@@ -360,7 +443,7 @@ function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline) {
           ticket,
           riskLabel,
           status: 'passing',
-          trend: buildIssueTrend(test.historyId, allureHistory, reisAppTimeline),
+          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, runLog),
         });
       }
     } else if (isFailure(test.status)) {
@@ -371,14 +454,14 @@ function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline) {
           ticket,
           riskLabel,
           status: 'failing',
-          trend: buildIssueTrend(test.historyId, allureHistory, reisAppTimeline),
+          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, runLog),
         });
       } else {
         unknownIssues.push({
           name: test.name,
           riskLabel,
           status: 'failing',
-          trend: buildIssueTrend(test.historyId, allureHistory, reisAppTimeline),
+          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, runLog),
         });
       }
     }
@@ -682,6 +765,8 @@ function renderIssueTrendDetails(trend) {
       (run) => `
           <tr>
             <td data-ts="${run.timestampMs}">${escapeHtml(new Date(run.timestampMs).toISOString())}</td>
+            <td>${run.tafCommit ? `<code>${escapeHtml(run.tafCommit)}</code>` : '<span class="muted">unknown</span>'}</td>
+            <td>${run.tafRunNumber && run.tafRunUrl ? `<a href="${escapeHtml(run.tafRunUrl)}">#${run.tafRunNumber}</a>` : '<span class="muted">unknown</span>'}</td>
             <td><span class="badge badge-${run.status === 'passed' ? 'pass' : 'fail'}">${run.status === 'passed' ? 'Passed' : 'Failed'}</span></td>
             <td>${run.reisAppVersion ? `<code>${escapeHtml(run.reisAppVersion)}</code>` : '<span class="muted">unknown</span>'}</td>
           </tr>`,
@@ -691,7 +776,7 @@ function renderIssueTrendDetails(trend) {
     <details class="trend-details">
       <summary>Last ${trend.runs.length} runs</summary>
       <table class="suite-table trend-table">
-        <thead><tr><th>Run</th><th>Status</th><th>reis-app version</th></tr></thead>
+        <thead><tr><th>Run</th><th>reis-app-taf version</th><th>CI run</th><th>Status</th><th>reis-app version</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </details>`;

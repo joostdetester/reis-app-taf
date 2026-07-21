@@ -440,6 +440,19 @@ jobs:
           path: reis-app-repo
           fetch-depth: 0
 
+      # This repo's own build metadata (run number, run URL, commit) per
+      # past run - Allure's history.json (fetched above) has no room for it.
+      # See scripts/check-release-readiness.mjs's appendRunLog/resolveRunAt.
+      # Best-effort, same as the history.json fetch above: missing/404 just
+      # means this branch's very first run, start empty.
+      - name: Fetch previous release-readiness run log
+        continue-on-error: true
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          BRANCH="${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) }}"
+          PAGES_URL="https://${{ github.repository_owner }}.github.io/${REPO_NAME}/${BRANCH}/release-readiness/"
+          curl -fsSL "${PAGES_URL}run-log.json" -o release-readiness-run-log.json 2>/dev/null || echo "[]" > release-readiness-run-log.json
+
       # Exit code from this step is the gate itself - a non-zero exit (not
       # every suite at 100% pass) fails this job.
       - run: npm run release:readiness

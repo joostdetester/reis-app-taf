@@ -99,10 +99,27 @@ Each row shows a success rate (e.g. "85% (17/20)") and current
 pass streak, sourced from the *same* per-test run history Allure's own Trend
 widget uses - fetched from the previously published report before this
 script runs (`ci.yml`'s "Fetch previous report history" step in the
-`release-readiness` job), so no separate tracking mechanism exists alongside
-Allure's. Allure retains at most the last 20 runs per test, which is why the
-denominator is "20", not the scenario's full lifetime - a run older than
-that has already rolled off.
+`release-readiness` job). Allure retains at most the last 20 runs per test,
+which is why the denominator is "20", not the scenario's full lifetime - a
+run older than that has already rolled off.
+
+That fetched history is always one run stale - it's only refreshed by the
+`test-summary` job's own `allure generate`, which runs *after*
+`release-readiness` in the same workflow (see `ci.yml`). Rather than always
+showing a trend that's missing the run currently being computed, this run's
+own result is prepended directly from its own Allure results (already
+available in this job, no fetch needed) before the success rate/streak are
+computed.
+
+Expanding "Last N runs" on a row shows the full breakdown per run: timestamp,
+this repo's own commit and CI run (e.g. `#103`, linking back to the Actions
+run), status, and resolved reis-app version. The repo/CI-run columns come
+from a separate small log this script maintains itself
+(`release-readiness-run-log.json`, one entry per `release-readiness` run,
+fetched/republished the same way as Allure's history) - Allure's own history
+has no room for that metadata. Since this only started being recorded from
+the run that added it, older rows still inside the 20-run window show
+"unknown" there until they roll off.
 
 If a streak of consecutive passes is currently active, the row also names
 which reis-app commit was live when that streak started (e.g. "8 in a row,
@@ -113,8 +130,6 @@ per commit, so "the newest reis-app commit at or before this run's
 timestamp" (resolved via a full clone of reis-app checked out alongside this
 repo in CI, see `ci.yml`) is the best available proxy for "what was live at
 the time" - not a guarantee that commit had actually been deployed yet.
-Expanding "Last N runs" on a row shows the full breakdown: timestamp,
-status, and resolved reis-app version for every retained run.
 
 Degrades gracefully rather than failing the gate: a scenario with no
 history yet (the very first time it fails, or the branch's first-ever
