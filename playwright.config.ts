@@ -72,7 +72,8 @@ export default defineConfig({
   // projects only run @smoke, plus @accessibility for the two mobile
   // projects so the existing a11y scans - including WCAG's Target Size
   // (tap-target) criterion - get exercised on a real mobile viewport, not
-  // just desktop. `webkit` covers desktop Safari's rendering engine.
+  // just desktop. `webkit` covers desktop Safari's rendering engine, `firefox`
+  // covers Gecko.
   //
   // This works by intersection, not replacement: npm's test:e2e/test:a11y
   // scripts pass --grep/--grep-invert @accessibility on the CLI, and
@@ -88,9 +89,9 @@ export default defineConfig({
   // viewport functional coverage - only meaningful on the two mobile
   // projects. `@touch` marks the one scenario among those that calls
   // Locator.tap(), which Playwright only allows on a context with
-  // hasTouch:true - desktop Chrome/Safari device presets set hasTouch:false,
-  // so chromium excludes it via grepInvert (webkit already excludes it too,
-  // since its grep only matches @smoke).
+  // hasTouch:true - desktop Chrome/Safari/Firefox device presets set
+  // hasTouch:false, so chromium excludes it via grepInvert (webkit/firefox
+  // already exclude it too, since their grep only matches @smoke).
   projects: [
     // No device preset here (unlike the projects below): 'Desktop Chrome'
     // sets a fixed viewport, which would override the WINDOW_FULLSCREEN /
@@ -99,6 +100,7 @@ export default defineConfig({
     // single-project setup (browserName defaults to chromium).
     { name: 'chromium', grepInvert: /@touch/ },
     { name: 'webkit', use: { ...devices['Desktop Safari'] }, grep: /@smoke/ },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, grep: /@smoke/ },
     {
       name: 'mobile-chrome',
       use: { ...devices['Pixel 7'] },

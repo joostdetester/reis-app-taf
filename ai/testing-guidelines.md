@@ -49,13 +49,14 @@ tag is routed.
 - `@accessibility` — the dedicated Accessibility job/report; excluded from
   the E2E job.
 - `@smoke` — critical paths; the only tag that runs across every
-  cross-browser/mobile-viewport project (`chromium`/`webkit`/`mobile-chrome`/
-  `mobile-safari`), not just `chromium`.
+  cross-browser/mobile-viewport project (`chromium`/`webkit`/`firefox`/
+  `mobile-chrome`/`mobile-safari`), not just `chromium`.
 - `@mobile` — mobile-viewport-only functional scenarios (`features/mobile-
   layout.feature`); only run on the two mobile projects.
 - `@touch` — a `@mobile` scenario that calls `Locator.tap()`, which requires
-  a context with `hasTouch:true`; excluded from `chromium`/`webkit` (desktop
-  device presets have `hasTouch:false`, so `.tap()` would error there).
+  a context with `hasTouch:true`; excluded from `chromium`/`webkit`/`firefox`
+  (desktop device presets have `hasTouch:false`, so `.tap()` would error
+  there).
 - `@external-api` — the scenario calls a live third-party API directly
   (currently: open-meteo weather, the Frankfurter exchange-rate API) with no
   control over its uptime. Runs as a separate, best-effort step in the E2E

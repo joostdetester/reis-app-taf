@@ -48,9 +48,13 @@ Vink af en voeg een datum/commit-referentie toe zodra iets is opgepakt.
 
 ## Architecturale hiaten
 
-- [ ] **Firefox toevoegen aan de browser-matrix.** `playwright.config.ts`
-      dekt nu chromium/webkit/mobile-chrome/mobile-safari, geen Firefox.
-      Alleen relevant als reis-app doelbewust Firefox-compatibel moet zijn.
+- [x] **Firefox toevoegen aan de browser-matrix.** Toegevoegd als eigen
+      `firefox`-project in `playwright.config.ts` (net als `webkit`: alleen
+      `@smoke`, `devices['Desktop Firefox']`), plus een displaynaam in
+      `steps/fixtures.ts` voor de Allure-suite-indeling. `npx playwright
+      install --with-deps` in CI installeert Firefox al standaard, dus geen
+      workflow-wijziging nodig. Lokaal geverifieerd: alle 5 `@smoke`-
+      scenario's slagen op `firefox`.
 - [ ] **Dependabot/Renovate instellen.** `npm audit --audit-level=high` in
       de security-CI-job laat moderate findings structureel liggen zonder
       dat iemand ze ooit terugziet — een geautomatiseerde dependency-PR-flow

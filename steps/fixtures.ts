@@ -119,6 +119,7 @@ async function safeAllure(action: () => Promise<void>): Promise<void> {
 const PROJECT_DISPLAY_NAMES: Record<string, string> = {
   chromium: 'Chromium',
   webkit: 'WebKit',
+  firefox: 'Firefox',
   'mobile-chrome': 'Mobile Chrome',
   'mobile-safari': 'Mobile Safari',
 };
