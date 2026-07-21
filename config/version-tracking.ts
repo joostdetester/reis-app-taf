@@ -56,16 +56,24 @@ async function fetchAppVersion(): Promise<VersionRecord> {
     const json = await response.json();
     const commit: string | undefined = json.commit;
     const ciRunTime = commit ? await fetchReisAppCiRunTime(commit) : undefined;
-    return { version: ciRunTime ? formatReadableUtc(ciRunTime) : 'unknown', commit: commit ?? 'unknown' };
+    return { version: ciRunTime ? formatDutchLocal(ciRunTime) : 'unknown', commit: commit ?? 'unknown' };
   } catch (error) {
     console.warn(`[version-tracking] Kon ${projectConfig.baseUrl}/version.json niet ophalen: ${(error as Error).message}`);
     return { version: 'unknown' };
   }
 }
 
-function formatReadableUtc(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
+// Allure's Environment widget shows whatever plain string is baked into
+// environment.properties at generation time - unlike the release-readiness/
+// accessibility HTML reports, there's no client-side rendering here to
+// adapt to each viewer's own timezone, so this fixes on one (nl-NL /
+// Europe/Amsterdam, this project's own timezone) rather than UTC. Matches
+// what `toLocaleString()` already renders as in those other two reports for
+// a Netherlands-based viewer (e.g. "20-7-2026, 13:51:26") - explicit locale/
+// timeZone rather than relying on the runner's own default, which on a CI
+// runner is neither of those.
+function formatDutchLocal(date: Date): string {
+  return date.toLocaleString('nl-NL', { timeZone: 'Europe/Amsterdam' });
 }
 
 // This repo's own version/commit/CI run - distinct from `reis-app`'s (the
@@ -86,7 +94,7 @@ function formatReadableUtc(date: Date): string {
 function resolveTafGitInfo(): VersionRecord & { ciRun?: string } {
   const commit = process.env.GITHUB_SHA ?? tryGit(['rev-parse', 'HEAD']);
   return {
-    version: formatReadableUtc(new Date()),
+    version: formatDutchLocal(new Date()),
     commit: commit ? commit.slice(0, 7) : undefined,
     ciRun: process.env.GITHUB_RUN_NUMBER ? `#${process.env.GITHUB_RUN_NUMBER}` : undefined,
   };
