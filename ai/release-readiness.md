@@ -134,6 +134,17 @@ non-full clone, or the `gh run list` step erroring) or the closest match is
 implausibly far from the test's own timestamp - a sanity check against
 mismatching to the wrong run entirely if either fetch came back incomplete.
 
+The "CI run" link goes to that run's own Actions log, which GitHub keeps
+indefinitely. The *report* itself is a different story: the published Allure/
+accessibility/release-readiness reports normally live at one shared,
+continuously-overwritten path per branch (`<branch>/`), so by the time you
+come back to an older run, its own report has already been replaced by
+whatever ran most recently. `test-summary` (`ci.yml`) also publishes each
+run's own complete report permanently under `<branch>/runs/<run number>/`,
+linked from that run's own job summary - kept for the same 20-run window as
+this trend table (older run archives get pruned each deploy), so the two
+stay in sync.
+
 If a streak of consecutive passes is currently active, the row also names
 which reis-app commit was live when that streak started (e.g. "8 in a row,
 since reis-app 6df5e9f") - useful for spotting "this got fixed around

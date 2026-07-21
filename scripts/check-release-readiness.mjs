@@ -772,6 +772,9 @@ function renderIssueTrendDetails(trend) {
   return `
     <details class="trend-details">
       <summary>Last ${trend.runs.length} runs</summary>
+      <p class="muted trend-note">The "CI run" link always works (GitHub keeps run logs indefinitely), but each
+      run's own report snapshot - linked from that run's own job summary - is only kept for the last 20 runs;
+      older rows above may show a live CI log with no report to go with it any more.</p>
       <table class="suite-table trend-table">
         <thead><tr><th>Run</th><th>reis-app-taf version</th><th>CI run</th><th>Status</th><th>reis-app version</th></tr></thead>
         <tbody>${rows}</tbody>
@@ -886,6 +889,7 @@ td .muted { font-size: 12px; }
 .issue-table code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
 .trend-details { font-size: 13px; }
 .trend-details summary { cursor: pointer; color: var(--muted); }
+.trend-note { margin: 8px 0 0; font-size: 12px; }
 .trend-table { margin-top: 8px; box-shadow: none; }
 .trend-table th, .trend-table td { padding: 6px 10px; font-size: 12px; }
 .excluded { margin-top: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }

@@ -127,9 +127,10 @@ function buildHtmlReport(records) {
   ${levels.map((level) => renderLevelSection(level, byLevel.get(level))).join('\n')}
 
   <footer class="footer">
-    Gegenereerd op ${escapeHtml(new Date().toISOString())}
+    Gegenereerd op <span data-ts="${Date.now()}">${escapeHtml(new Date().toISOString())}</span>
   </footer>
 </div>
+<script>${TIMESTAMP_SCRIPT}</script>
 </body>
 </html>`;
 }
@@ -316,6 +317,18 @@ h1 { margin: 6px 0 12px; font-size: 28px; }
 .node-list code { font-size: 12px; }
 .failure-summary { font-size: 12px; color: var(--muted); white-space: pre-line; margin-top: 4px; }
 .footer { margin-top: 32px; font-size: 12px; color: var(--muted); text-align: center; }
+`;
+
+// Formatted in the viewer's own browser rather than baked in as a fixed
+// string at generation time (this script runs on a UTC CI runner) - same
+// approach as scripts/check-release-readiness.mjs, so this report's
+// "Gegenereerd op" timestamp reads in the same timezone as the other two
+// published reports instead of always showing UTC.
+const TIMESTAMP_SCRIPT = `
+document.querySelectorAll('[data-ts]').forEach((el) => {
+  const ms = Number(el.getAttribute('data-ts'));
+  if (Number.isFinite(ms)) el.textContent = new Date(ms).toLocaleString();
+});
 `;
 
 main();

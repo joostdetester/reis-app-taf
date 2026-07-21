@@ -703,6 +703,56 @@ jobs:
             cp -r release-readiness-report-download/. "site/${{ steps.branch.outputs.dir }}/release-readiness/"
           fi
 
+      # This run's own complete report (Allure + a11y-report +
+      # release-readiness, everything under site/<branch>/ so far) - snapshot
+      # it before the "runs/" archive below gets added into that same tree,
+      # so the archive doesn't end up nesting a copy of itself.
+      - name: Snapshot this run's own report
+        run: cp -r "site/${{ steps.branch.outputs.dir }}" /tmp/current-run-snapshot
+
+      # Every run's own report snapshot lives permanently at
+      # <branch>/runs/<run number>/ (linked from the CI run's own job summary
+      # below) - the "latest" <branch>/ report above gets overwritten by the
+      # next run, same as ever, but this lets you open the exact report a
+      # specific historical run produced. actions/deploy-pages replaces the
+      # *entire* site on every deploy, so without recovering this branch's
+      # own past archive first, each deploy would wipe out every previous
+      # run's snapshot - same trick as "Recover other branch's report" below,
+      # just applied to this branch's own runs/ subtree instead of the other
+      # branch's whole report. Best-effort: continue on 404 for this
+      # branch's very first run with this feature.
+      - name: Recover this branch's own report archive
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="${{ steps.branch.outputs.dir }}"
+          mkdir -p "site/$BRANCH/runs"
+          for RUN_ID in $(gh run list -R "$GITHUB_REPOSITORY" --branch "$BRANCH" --workflow ci.yml --limit 5 --json databaseId --jq '.[].databaseId'); do
+            CONCLUSION=$(gh run view "$RUN_ID" -R "$GITHUB_REPOSITORY" --json jobs --jq '.jobs[] | select(.name=="Test Summary") | .conclusion')
+            if [ "$CONCLUSION" = "success" ]; then
+              mkdir -p /tmp/own-artifact /tmp/own-extracted
+              gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -n github-pages -D /tmp/own-artifact
+              tar -xf /tmp/own-artifact/artifact.tar -C /tmp/own-extracted
+              if [ -d "/tmp/own-extracted/$BRANCH/runs" ]; then
+                cp -r /tmp/own-extracted/$BRANCH/runs/. "site/$BRANCH/runs/"
+              fi
+              break
+            fi
+          done
+
+      # Add this run's own snapshot, then prune to Allure's own 20-run trend
+      # retention window (check-release-readiness.mjs's "Last 20 runs" -
+      # otherwise this grows forever, one folder per CI run for the life of
+      # the project).
+      - name: Add this run's snapshot and prune old ones
+        run: |
+          BRANCH="${{ steps.branch.outputs.dir }}"
+          mkdir -p "site/$BRANCH/runs/${{ github.run_number }}"
+          cp -r /tmp/current-run-snapshot/. "site/$BRANCH/runs/${{ github.run_number }}/"
+          cd "site/$BRANCH/runs"
+          ls -1 | sort -rn | tail -n +21 | xargs -r rm -rf
+
       # Recover the other branch's last-deployed report so this deploy
       # doesn't wipe it out - actions/deploy-pages publishes the *entire*
       # uploaded artifact as the site each time, so anything not carried
@@ -764,13 +814,25 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v5
 
+      # "(latest)" always shows whatever the most recent run on this branch
+      # published - by the time you come back to an older run's own summary,
+      # a newer run has already overwritten it. "(this run)" instead points
+      # at this run's own permanent snapshot under runs/<run number>/ (see
+      # "Add this run's snapshot and prune old ones" above) - kept for the
+      # last 20 runs, same window as the release-readiness trend table.
       - name: Link report in step summary
         run: |
+          BRANCH="${{ steps.branch.outputs.dir }}"
+          BASE="${{ steps.deployment.outputs.page_url }}${BRANCH}"
+          RUN_BASE="${BASE}/runs/${{ github.run_number }}"
           echo "## Test Report" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Allure report: ${{ steps.deployment.outputs.page_url }}${{ steps.branch.outputs.dir }}/" >> "$GITHUB_STEP_SUMMARY"
-          if [ -d "site/${{ steps.branch.outputs.dir }}/a11y-report" ]; then
-            echo "- Accessibility HTML report: ${{ steps.deployment.outputs.page_url }}${{ steps.branch.outputs.dir }}/a11y-report/" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Allure report (latest): ${BASE}/" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Allure report (this run, #${{ github.run_number }}): ${RUN_BASE}/" >> "$GITHUB_STEP_SUMMARY"
+          if [ -d "site/${BRANCH}/a11y-report" ]; then
+            echo "- Accessibility HTML report (latest): ${BASE}/a11y-report/" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Accessibility HTML report (this run, #${{ github.run_number }}): ${RUN_BASE}/a11y-report/" >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ -d "site/${{ steps.branch.outputs.dir }}/release-readiness" ]; then
-            echo "- Release readiness report: ${{ steps.deployment.outputs.page_url }}${{ steps.branch.outputs.dir }}/release-readiness/" >> "$GITHUB_STEP_SUMMARY"
+          if [ -d "site/${BRANCH}/release-readiness" ]; then
+            echo "- Release readiness report (latest): ${BASE}/release-readiness/" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Release readiness report (this run, #${{ github.run_number }}): ${RUN_BASE}/release-readiness/" >> "$GITHUB_STEP_SUMMARY"
           fi
