@@ -368,16 +368,21 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # Points at the report's eventual home (<branch>/release-readiness/) so
-    # the URL badge shows up on this job the same way test-summary's does -
-    # separate environment name (not github-pages-<branch>) so it doesn't
-    # collide with that one. Caveat: this job runs *before* test-summary
-    # actually deploys, so the link briefly shows the *previous* run's
-    # report until test-summary finishes a little later in the same
-    # workflow run - not the just-computed one from this job.
+    # Points at this run's own permanent snapshot (<branch>/runs/<run
+    # number>/release-readiness/, see test-summary's "Add this run's
+    # snapshot and prune old ones") rather than the shared <branch>/
+    # release-readiness/ path that every run overwrites - so the badge
+    # keeps showing *this* run's own report, not whatever ran most
+    # recently. Separate environment name (not github-pages-<branch>) so it
+    # doesn't collide with that one. Caveat: this job runs *before*
+    # test-summary actually publishes the snapshot, so the link 404s until
+    # test-summary finishes a little later in the same workflow run - but
+    # once it does, it stays correct permanently (for the same 20-run
+    # window test-summary retains), unlike the shared path which gets
+    # overwritten by the next run.
     environment:
       name: release-readiness-${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) }}
-      url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) }}/release-readiness/
+      url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) }}/runs/${{ github.run_number }}/release-readiness/
     steps:
       # fetch-depth: 0 (full history, not the default shallow clone) - the
       # trend table's "reis-app-taf version" column resolves "which commit
@@ -532,9 +537,19 @@ jobs:
     # sharing one environment between branches meant whichever branch
     # deployed last silently marked the other's badge inactive (the site
     # itself stayed correct either way, only the UI badge was affected).
+    #
+    # Points at this run's own permanent snapshot (<branch>/runs/<run
+    # number>/, see "Add this run's snapshot and prune old ones" below)
+    # rather than the shared <branch>/ path every run overwrites - so a
+    # deployment record queried later (e.g. via the API) still resolves to
+    # the report that run actually produced, not whatever's currently live.
+    # The Actions UI's own badge still only ever highlights the *most
+    # recent* deployment to this shared environment name regardless (a
+    # GitHub Environments limitation, not something this URL choice
+    # changes) - see the "recently active deployment" note above.
     environment:
       name: github-pages-${{ github.ref_name }}
-      url: ${{ steps.deployment.outputs.page_url }}${{ steps.branch.outputs.dir }}/
+      url: ${{ steps.deployment.outputs.page_url }}${{ steps.branch.outputs.dir }}/runs/${{ github.run_number }}/
     steps:
       - uses: actions/checkout@v7
 
