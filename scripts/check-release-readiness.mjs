@@ -118,6 +118,7 @@ const SECURITY_THRESHOLD_LABEL = '100% pass (0 failed/broken)';
 
 async function main() {
   const generatedAt = new Date().toISOString();
+  const runMeta = currentRunMeta();
   const latestByHistoryId = await loadLatestAllureResults();
   const allureHistory = await loadAllureHistory();
   const reisAppTimeline = loadCommitTimeline(REIS_APP_REPO_DIR);
@@ -151,6 +152,7 @@ async function main() {
         accessibilityLevels,
         security,
         excludedSuites: EXCLUDED_SUITES,
+        runMeta,
       },
       null,
       2,
@@ -168,6 +170,7 @@ async function main() {
       accessibilityLevels,
       security,
       generatedAt,
+      runMeta,
     ),
   );
 
@@ -300,6 +303,21 @@ function resolveCommitAt(timeline, timestampMs) {
     else break;
   }
   return result ? result.hash.slice(0, 7) : null;
+}
+
+// This run's own reis-app-taf commit/CI run - shown directly on the report
+// (see buildHtmlReport) rather than only resolved indirectly for historical
+// trend rows. Same GitHub Actions default env vars as loadCiRunHistory's
+// URL construction; null for a local run outside CI.
+function currentRunMeta() {
+  const runId = process.env.GITHUB_RUN_ID;
+  const serverUrl = process.env.GITHUB_SERVER_URL ?? 'https://github.com';
+  const repo = process.env.GITHUB_REPOSITORY;
+  return {
+    tafCommit: process.env.GITHUB_SHA ? process.env.GITHUB_SHA.slice(0, 7) : null,
+    runNumber: process.env.GITHUB_RUN_NUMBER ? Number(process.env.GITHUB_RUN_NUMBER) : null,
+    runUrl: runId && repo ? `${serverUrl}/${repo}/actions/runs/${runId}` : null,
+  };
 }
 
 // GitHub's own record of this workflow's past runs on this branch (`gh run
@@ -593,6 +611,7 @@ function buildHtmlReport(
   accessibilityLevels,
   security,
   generatedAt,
+  runMeta,
 ) {
   return `<!doctype html>
 <html lang="en">
@@ -608,6 +627,7 @@ function buildHtmlReport(
     <p class="eyebrow">Release Readiness Gate</p>
     <h1>${overallReady ? '✅ Ready for release' : '❌ Not ready for release'}</h1>
     <p class="lede">Each section below is judged against its own threshold - see ai/release-readiness.md.</p>
+    ${renderRunMeta(runMeta)}
   </header>
 
   <section class="group">
@@ -677,6 +697,17 @@ function buildHtmlReport(
 <script>${TIMESTAMP_SCRIPT}</script>
 </body>
 </html>`;
+}
+
+function renderRunMeta(runMeta) {
+  if (!runMeta.tafCommit && !runMeta.runNumber) return '';
+  const commit = runMeta.tafCommit ? `<code>${escapeHtml(runMeta.tafCommit)}</code>` : 'unknown';
+  const run = runMeta.runNumber
+    ? runMeta.runUrl
+      ? `<a href="${escapeHtml(runMeta.runUrl)}">#${runMeta.runNumber}</a>`
+      : `#${runMeta.runNumber}`
+    : 'unknown';
+  return `<p class="run-meta muted">reis-app-taf ${commit} &middot; CI run ${run}</p>`;
 }
 
 function renderE2eRow(b, totalE2e) {
@@ -863,6 +894,8 @@ body {
 .eyebrow { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 h1 { margin: 6px 0 12px; font-size: 28px; }
 .lede { margin: 0; color: var(--muted); }
+.run-meta { margin: 10px 0 0; font-size: 13px; }
+.run-meta code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
 .group { margin-top: 28px; }
 .group h2 { font-size: 16px; margin: 0 0 10px; }
 .muted { color: var(--muted); }
