@@ -35,34 +35,27 @@ function formatCalVer(date: Date): string {
   return `${date.getUTCFullYear()}.${pad(date.getUTCMonth() + 1)}.${pad(date.getUTCDate())}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}`;
 }
 
-function formatReadableUtc(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
-}
-
-// This repo's own version/commit - distinct from `reis-app`'s (the SUT),
-// which tracks what was deployed and tested *against*. Without this, the
-// Allure report's Environment widget only shows what reis-app version was
-// tested, not which reis-app-taf commit ran the tests - so a report can't be
-// traced back to its own source without cross-referencing the GitHub Actions
-// run. `version` is this run's own timestamp (same CalVer shape as
+// This repo's own version/commit/CI run - distinct from `reis-app`'s (the
+// SUT), which tracks what was deployed and tested *against*. Without this,
+// the Allure report's Environment widget only shows what reis-app version
+// was tested, not which reis-app-taf commit/run produced the report - so it
+// can't be traced back to its own source without cross-referencing GitHub
+// Actions. `version` is this run's own timestamp (same CalVer shape as
 // reis-app.version, so a same-day re-run of the same commit still reads as
 // distinct) - not the branch name, which is already its own separate
 // "Branch" field (see ci.yml's "Write Allure environment info" step).
-// `commit`'s parenthetical is the commit's own committer date instead - when
-// the code was actually written, not when this particular run happened.
-// GITHUB_SHA is always set by the Actions runner; falls back to `git`
-// directly for local runs, where it's unset. The committer-date lookup
-// always targets HEAD rather than $GITHUB_SHA specifically - equivalent in
-// both CI (HEAD *is* the checked-out commit) and locally, and avoids a
-// second (potentially failing) `git log <sha>` call.
-function resolveTafGitInfo(): VersionRecord {
+// `commit` is the plain short hash, same style as
+// check-release-readiness.mjs's trend table, rather than this file's
+// previous "<hash> (<committer date>)" - keeps the two reports reading the
+// same way. GITHUB_SHA/GITHUB_RUN_NUMBER are always set by the Actions
+// runner; commit falls back to `git` directly for local runs (run number
+// has no local equivalent, so it's just omitted there).
+function resolveTafGitInfo(): VersionRecord & { ciRun?: string } {
   const commit = process.env.GITHUB_SHA ?? tryGit(['rev-parse', 'HEAD']);
-  const committedAtIso = tryGit(['log', '-1', '--format=%cI']);
-  const committedAt = committedAtIso ? formatReadableUtc(new Date(committedAtIso)) : undefined;
   return {
     version: formatCalVer(new Date()),
-    commit: commit ? `${commit.slice(0, 7)}${committedAt ? ` (${committedAt})` : ''}` : undefined,
+    commit: commit ? commit.slice(0, 7) : undefined,
+    ciRun: process.env.GITHUB_RUN_NUMBER ? `#${process.env.GITHUB_RUN_NUMBER}` : undefined,
   };
 }
 
@@ -140,6 +133,7 @@ export async function writeVersionEnvironment(): Promise<void> {
   const tafInfo = resolveTafGitInfo();
   lines.push(`reis-app-taf.version=${tafInfo.version}`);
   if (tafInfo.commit) lines.push(`reis-app-taf.commit=${tafInfo.commit}`);
+  if (tafInfo.ciRun) lines.push(`reis-app-taf.ci-run=${tafInfo.ciRun}`);
 
   mkdirSync(path.dirname(ENVIRONMENT_PROPERTIES_PATH), { recursive: true });
   writeFileSync(ENVIRONMENT_PROPERTIES_PATH, lines.join('\n') + '\n');
