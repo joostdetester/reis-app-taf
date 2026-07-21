@@ -312,7 +312,7 @@ function buildIssueTrend(historyId, allureHistory, reisAppTimeline) {
     streak > 0 ? resolveReisAppCommitAt(reisAppTimeline, items[streak - 1].time.start) : null;
 
   const runs = items.map((item) => ({
-    date: new Date(item.time.start).toISOString().replace('T', ' ').slice(0, 16) + ' UTC',
+    timestampMs: item.time.start,
     status: item.status,
     reisAppVersion: resolveReisAppCommitAt(reisAppTimeline, item.time.start),
   }));
@@ -592,8 +592,9 @@ function buildHtmlReport(
 
   ${EXCLUDED_SUITES.length ? renderExcluded() : ''}
 
-  <footer class="footer">Generated ${escapeHtml(generatedAt)}</footer>
+  <footer class="footer">Generated <span data-ts="${new Date(generatedAt).getTime()}">${escapeHtml(generatedAt)}</span></footer>
 </div>
+<script>${TIMESTAMP_SCRIPT}</script>
 </body>
 </html>`;
 }
@@ -680,7 +681,7 @@ function renderIssueTrendDetails(trend) {
     .map(
       (run) => `
           <tr>
-            <td>${escapeHtml(run.date)}</td>
+            <td data-ts="${run.timestampMs}">${escapeHtml(new Date(run.timestampMs).toISOString())}</td>
             <td><span class="badge badge-${run.status === 'passed' ? 'pass' : 'fail'}">${run.status === 'passed' ? 'Passed' : 'Failed'}</span></td>
             <td>${run.reisAppVersion ? `<code>${escapeHtml(run.reisAppVersion)}</code>` : '<span class="muted">unknown</span>'}</td>
           </tr>`,
@@ -809,6 +810,20 @@ td .muted { font-size: 12px; }
 .excluded h2 { margin: 0 0 8px; font-size: 16px; }
 .excluded ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
 .footer { margin-top: 24px; font-size: 12px; color: var(--muted); text-align: center; }
+`;
+
+// Every timestamp is embedded as a raw epoch-ms `data-ts` attribute and
+// formatted here, in the viewer's browser, rather than pre-formatted to a
+// fixed "UTC" string at generation time (this script runs on a UTC CI
+// runner). Allure's own HTML report formats its timestamps the same way -
+// client-side, in the viewer's local timezone - so this keeps the two
+// reports showing the same wall-clock time instead of one reading UTC and
+// the other reading whatever timezone the viewer happens to be in.
+const TIMESTAMP_SCRIPT = `
+document.querySelectorAll('[data-ts]').forEach((el) => {
+  const ms = Number(el.getAttribute('data-ts'));
+  if (Number.isFinite(ms)) el.textContent = new Date(ms).toLocaleString();
+});
 `;
 
 main();
