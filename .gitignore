@@ -8,4 +8,6 @@ allure-report/
 a11y-report-data/
 a11y-report/
 release-readiness-report/
+ci-run-history.json
+reis-app-ci-run-history.json
 .env

@@ -479,6 +479,20 @@ jobs:
           gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch "$BRANCH" --event push \
             --json databaseId,number,headSha,createdAt --limit 100 > ci-run-history.json || echo "[]" > ci-run-history.json
 
+      # Same as above, but reis-app's own CI workflow - a separate
+      # repo/pipeline from this one (independent of the manual `vercel
+      # --prod` deploy, see reis-app's own SECURITY.md/README). Public repo,
+      # same token as the checkout above already reads from it without
+      # extra permissions. Always its `master` branch - reis-app has no
+      # test/acceptance branch split of its own.
+      - name: Fetch reis-app CI run history (for trend table's reis-app CI-run column)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list -R joostdetester/reis-app --workflow ci.yml --branch master --event push \
+            --json databaseId,number,headSha,createdAt --limit 100 > reis-app-ci-run-history.json || echo "[]" > reis-app-ci-run-history.json
+
       # Exit code from this step is the gate itself - a non-zero exit (not
       # every suite at 100% pass) fails this job.
       - run: npm run release:readiness

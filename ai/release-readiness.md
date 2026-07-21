@@ -111,28 +111,37 @@ own result is prepended directly from its own Allure results (already
 available in this job, no fetch needed) before the success rate/streak are
 computed.
 
-Expanding "Last N runs" on a row shows the full breakdown per run: timestamp,
-this repo's own commit and CI run (e.g. `#103`, linking back to the Actions
-run), status, and resolved reis-app version. Allure's own history has no
-room for either piece of extra metadata, so both are resolved independently,
-retroactively, for every row - no warm-up period where older rows show
-"unknown" (past commits/runs already exist, unlike a log this script would
-have to build up run by run):
+Expanding "Last N runs" on a row shows the full breakdown per run, split
+into two column groups (the second one, reis-app's own, tinted a light blue
+so it's visually obvious which side of the trace a column belongs to):
 
-- **reis-app-taf version** - same "newest commit at or before this
-  timestamp" resolution as the reis-app version column below, just walked
-  against this repo's own git history instead (`git log` in the job's own
-  checkout, which needs `fetch-depth: 0` in `ci.yml` - the default shallow
-  clone only has the one commit currently checked out).
-- **CI run** - GitHub's own record of past runs of this workflow on this
-  branch (`gh run list`, fetched by `ci.yml`'s "Fetch CI run history" step
-  before this script runs), matched to the most recent run that had already
-  started at or before the test's own timestamp.
+- **Run / reis-app-taf version / CI run** - this repo's own side. `Run` is
+  the test's own timestamp. `reis-app-taf version` is "the newest commit at
+  or before this timestamp" (`git log` in the job's own checkout, which
+  needs `fetch-depth: 0` in `ci.yml` - the default shallow clone only has
+  the one commit currently checked out). `CI run` (e.g. `#103`, linking to
+  the Actions run) is that exact commit's own workflow run, from `gh run
+  list` (fetched by `ci.yml`'s "Fetch CI run history" step) - matched by
+  commit, not by nearest timestamp, so it can't land on a neighboring run.
+- **reis-app run / reis-app version / reis-app CI run** - same idea, one
+  step removed: `reis-app version` is resolved the same "newest commit at
+  or before this timestamp" way, just against reis-app's own git history
+  instead (the `Checkout reis-app` step above). `reis-app run` and
+  `reis-app CI run` are *that* commit's own run in reis-app's separate CI
+  workflow (`gh run list -R joostdetester/reis-app`, fetched by `ci.yml`'s
+  "Fetch reis-app CI run history" step) - reis-app's CI and its deploy are
+  two different things (deploy is still manual, `vercel --prod`), so this
+  is "reis-app's tests ran for this commit", not "this commit went live".
 
-Both fall back to "unknown" only if the underlying fetch failed (e.g. a
-non-full clone, or the `gh run list` step erroring) or the closest match is
-implausibly far from the test's own timestamp - a sanity check against
-mismatching to the wrong run entirely if either fetch came back incomplete.
+Every one of the six falls back to "unknown" if the underlying fetch failed
+(e.g. a non-full clone, or either `gh run list` step erroring) or that exact
+commit never triggered its own run (e.g. an intermediate commit from a
+multi-commit push - only the push's last commit gets its own run).
+
+The report's own header repeats this same pair, but for the run "now"
+(this run's own reis-app-taf commit/CI run, and whichever reis-app commit
+was newest as of generation time) rather than per historical row - same
+resolution, same visual split.
 
 The "CI run" link goes to that run's own Actions log, which GitHub keeps
 indefinitely. The *report* itself is a different story: the published Allure/

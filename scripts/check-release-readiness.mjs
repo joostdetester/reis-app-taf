@@ -21,6 +21,11 @@ const REIS_APP_TAF_REPO_DIR = process.env.REIS_APP_TAF_REPO_DIR ?? '.';
 // GitHub's own record of this workflow's past runs (`gh run list`, fetched
 // by ci.yml before this script runs) - see loadCiRunHistory.
 const CI_RUN_HISTORY_PATH = process.env.CI_RUN_HISTORY_PATH ?? 'ci-run-history.json';
+// Same, but reis-app's own CI workflow (a separate repo/pipeline from this
+// one - reis-app has its own `ci.yml` that runs on every push, independent
+// of the manual `vercel --prod` deploy). Lets the trend table show which
+// reis-app CI run corresponds to a resolved reis-app commit.
+const REIS_APP_CI_RUN_HISTORY_PATH = process.env.REIS_APP_CI_RUN_HISTORY_PATH ?? 'reis-app-ci-run-history.json';
 
 // Visual Regression is currently disabled in CI (playwright.config.ts's
 // Today-page baseline goes stale on its own with the real calendar date -
@@ -118,19 +123,27 @@ const SECURITY_THRESHOLD_LABEL = '100% pass (0 failed/broken)';
 
 async function main() {
   const generatedAt = new Date().toISOString();
-  const runMeta = currentRunMeta();
   const latestByHistoryId = await loadLatestAllureResults();
   const allureHistory = await loadAllureHistory();
   const reisAppTimeline = loadCommitTimeline(REIS_APP_REPO_DIR);
   const reisAppTafTimeline = loadCommitTimeline(REIS_APP_TAF_REPO_DIR);
-  const ciRunHistory = await loadCiRunHistory();
+  const ciRunHistory = await loadCiRunHistory(CI_RUN_HISTORY_PATH, process.env.GITHUB_REPOSITORY);
+  const reisAppCiRunHistory = await loadCiRunHistory(REIS_APP_CI_RUN_HISTORY_PATH, 'joostdetester/reis-app');
+  const runMeta = buildRunMeta(reisAppTimeline, ciRunHistory, reisAppCiRunHistory, new Date(generatedAt).getTime());
 
   const {
     buckets: e2eBuckets,
     knownIssues,
     unknownIssues,
     totalE2e,
-  } = computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory);
+  } = computeE2eBuckets(
+    latestByHistoryId,
+    allureHistory,
+    reisAppTimeline,
+    reisAppTafTimeline,
+    ciRunHistory,
+    reisAppCiRunHistory,
+  );
   const { levels: accessibilityLevels, totalA11y } = await computeAccessibilityLevels(latestByHistoryId);
   const security = computeSecurity(latestByHistoryId);
 
@@ -305,34 +318,55 @@ function resolveCommitAt(timeline, timestampMs) {
   return result ? result.hash.slice(0, 7) : null;
 }
 
-// This run's own reis-app-taf commit/CI run - shown directly on the report
-// (see buildHtmlReport) rather than only resolved indirectly for historical
-// trend rows. Same GitHub Actions default env vars as loadCiRunHistory's
-// URL construction; null for a local run outside CI.
-function currentRunMeta() {
+// This run's own reis-app-taf commit/CI run, plus the reis-app version/CI
+// run that was current as of this same moment - shown directly on the
+// report (see buildHtmlReport/renderRunMeta) rather than only resolved
+// indirectly for historical trend rows. GITHUB_* are GitHub Actions' own
+// default env vars, present in every step without explicit `env:` wiring;
+// all fall back to null for a local run outside CI. reis-app's own commit
+// is resolved the same "newest commit at or before this timestamp" way a
+// historical trend row would be, just for "now" (`nowMs`) instead of a
+// past test's own timestamp - see resolveCommitAt.
+function buildRunMeta(reisAppTimeline, ciRunHistory, reisAppCiRunHistory, nowMs) {
   const runId = process.env.GITHUB_RUN_ID;
   const serverUrl = process.env.GITHUB_SERVER_URL ?? 'https://github.com';
   const repo = process.env.GITHUB_REPOSITORY;
+  const tafCommit = process.env.GITHUB_SHA ? process.env.GITHUB_SHA.slice(0, 7) : null;
+  const runNumber = process.env.GITHUB_RUN_NUMBER ? Number(process.env.GITHUB_RUN_NUMBER) : null;
+  const tafRun = findRunByCommit(ciRunHistory, tafCommit);
+
+  const reisAppCommit = resolveCommitAt(reisAppTimeline, nowMs);
+  const reisAppRun = findRunByCommit(reisAppCiRunHistory, reisAppCommit);
+
   return {
-    tafCommit: process.env.GITHUB_SHA ? process.env.GITHUB_SHA.slice(0, 7) : null,
-    runNumber: process.env.GITHUB_RUN_NUMBER ? Number(process.env.GITHUB_RUN_NUMBER) : null,
+    tafCommit,
+    runNumber,
     runUrl: runId && repo ? `${serverUrl}/${repo}/actions/runs/${runId}` : null,
+    runTimestampMs: tafRun?.createdAtMs ?? null,
+    reisAppCommit,
+    reisAppRunNumber: reisAppRun?.runNumber ?? null,
+    reisAppRunUrl: reisAppRun?.runUrl ?? null,
+    reisAppRunTimestampMs: reisAppRun?.createdAtMs ?? null,
   };
 }
 
-// GitHub's own record of this workflow's past runs on this branch (`gh run
-// list`, fetched by ci.yml as CI_RUN_HISTORY_PATH before this script runs) -
+// GitHub's own record of a workflow's past runs (`gh run list`, fetched by
+// ci.yml to `historyPath` before this script runs - CI_RUN_HISTORY_PATH for
+// this repo's own runs, REIS_APP_CI_RUN_HISTORY_PATH for reis-app's) -
 // unlike a self-maintained log, every historical run is already present, no
-// warm-up period needed for old trend rows to resolve. Sorted oldest-first,
-// same shape as loadCommitTimeline's output. Missing/invalid just means the
-// fetch step failed or this ran outside CI - the CI-run column then shows
-// "unknown" everywhere rather than failing the gate over it.
-async function loadCiRunHistory() {
+// warm-up period needed for old trend rows to resolve. `repo` (owner/name)
+// builds each entry's runUrl - always this repo for the first case, always
+// joostdetester/reis-app for the second, so it's passed in rather than
+// re-derived from GITHUB_REPOSITORY (only correct for the former). Sorted
+// oldest-first, same shape as loadCommitTimeline's output. Missing/invalid
+// just means the fetch step failed or this ran outside CI - the relevant
+// CI-run column then shows "unknown" everywhere rather than failing the
+// gate over it.
+async function loadCiRunHistory(historyPath, repo) {
   try {
-    const raw = JSON.parse(await readFile(CI_RUN_HISTORY_PATH, 'utf-8'));
+    const raw = JSON.parse(await readFile(historyPath, 'utf-8'));
     if (!Array.isArray(raw)) return [];
     const serverUrl = process.env.GITHUB_SERVER_URL ?? 'https://github.com';
-    const repo = process.env.GITHUB_REPOSITORY;
     return raw
       .map((run) => ({
         runNumber: run.number,
@@ -346,32 +380,22 @@ async function loadCiRunHistory() {
   }
 }
 
-// A test's own timestamp always falls sometime after its own CI run started
-// (`createdAt`) and before that run finished - by a few minutes at most,
-// given this workflow's job durations. Generous on purpose to tolerate CI
-// queueing delays without starting to misattribute an earlier run.
-const CI_RUN_MATCH_WINDOW_MS = 30 * 60 * 1000;
-
-// The most recent CI run that had already started at or before the given
-// test timestamp - i.e. the run that was actually in progress when this
-// test ran - but only if it's close enough to plausibly be that run.
-// Returns null (rendered as "unknown") when nothing plausible is on record,
-// e.g. `gh run list`'s own --limit cutting off before this test's time.
-function resolveRunAt(ciRunHistory, timestampMs) {
-  let result = null;
-  for (const run of ciRunHistory) {
-    if (run.createdAtMs > timestampMs) break;
-    result = run;
-  }
-  if (!result) return null;
-  return timestampMs - result.createdAtMs <= CI_RUN_MATCH_WINDOW_MS ? result : null;
+// The CI run whose own head commit exactly matches the given (already
+// resolved) short hash - always exact, unlike a time-window match, which
+// could land on a neighboring run when timestamps are close. Returns null
+// (rendered as "unknown") when that exact commit never triggered its own
+// run in what `gh run list` returned - e.g. an intermediate commit from a
+// multi-commit push, where only the push's last commit gets its own run.
+function findRunByCommit(ciRunHistory, commit) {
+  if (!commit) return null;
+  return ciRunHistory.find((run) => run.commit === commit) ?? null;
 }
 
 // Success rate, current pass streak, and (if reis-app's history is
 // available) the streak's starting reis-app version, for a single known
 // issue - purely additional context alongside the hard pass/fail count
 // already gating the release, not itself part of the gate.
-function buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory) {
+function buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory, reisAppCiRunHistory) {
   const entry = test.historyId ? allureHistory?.[test.historyId] : undefined;
   const publishedItems = entry?.items ?? []; // newest-first, per Allure's own ordering
 
@@ -404,14 +428,20 @@ function buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimelin
     streak > 0 ? resolveCommitAt(reisAppTimeline, items[streak - 1].time.start) : null;
 
   const runs = items.map((item) => {
-    const run = resolveRunAt(ciRunHistory, item.time.start);
+    const tafCommit = resolveCommitAt(reisAppTafTimeline, item.time.start);
+    const reisAppVersion = resolveCommitAt(reisAppTimeline, item.time.start);
+    const tafRun = findRunByCommit(ciRunHistory, tafCommit);
+    const reisAppRun = findRunByCommit(reisAppCiRunHistory, reisAppVersion);
     return {
       timestampMs: item.time.start,
       status: item.status,
-      reisAppVersion: resolveCommitAt(reisAppTimeline, item.time.start),
-      tafCommit: resolveCommitAt(reisAppTafTimeline, item.time.start),
-      tafRunNumber: run?.runNumber ?? null,
-      tafRunUrl: run?.runUrl ?? null,
+      reisAppVersion,
+      tafCommit,
+      tafRunNumber: tafRun?.runNumber ?? null,
+      tafRunUrl: tafRun?.runUrl ?? null,
+      reisAppRunNumber: reisAppRun?.runNumber ?? null,
+      reisAppRunUrl: reisAppRun?.runUrl ?? null,
+      reisAppRunTimestampMs: reisAppRun?.createdAtMs ?? null,
     };
   });
 
@@ -431,7 +461,14 @@ function formatTrendLogLabel(trend) {
   return ` - success rate ${trend.successRatePercent}% (${trend.passed}/${trend.total}), streak ${trend.streak}${since}`;
 }
 
-function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory) {
+function computeE2eBuckets(
+  latestByHistoryId,
+  allureHistory,
+  reisAppTimeline,
+  reisAppTafTimeline,
+  ciRunHistory,
+  reisAppCiRunHistory,
+) {
   const counts = Object.fromEntries(
     E2E_RISK_BUCKETS.map((b) => [b.key, { total: 0, passed: 0, failures: 0 }]),
   );
@@ -458,7 +495,7 @@ function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, re
           ticket,
           riskLabel,
           status: 'passing',
-          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory),
+          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory, reisAppCiRunHistory),
         });
       }
     } else if (isFailure(test.status)) {
@@ -469,14 +506,14 @@ function computeE2eBuckets(latestByHistoryId, allureHistory, reisAppTimeline, re
           ticket,
           riskLabel,
           status: 'failing',
-          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory),
+          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory, reisAppCiRunHistory),
         });
       } else {
         unknownIssues.push({
           name: test.name,
           riskLabel,
           status: 'failing',
-          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory),
+          trend: buildIssueTrend(test, allureHistory, reisAppTimeline, reisAppTafTimeline, ciRunHistory, reisAppCiRunHistory),
         });
       }
     }
@@ -699,15 +736,23 @@ function buildHtmlReport(
 </html>`;
 }
 
+function renderTimestamp(ms, unknownHtml = 'unknown') {
+  if (ms == null) return unknownHtml;
+  return `<span data-ts="${ms}">${escapeHtml(new Date(ms).toISOString())}</span>`;
+}
+
+function renderRunLink(runNumber, runUrl, unknownHtml = 'unknown') {
+  if (!runNumber) return unknownHtml;
+  return runUrl ? `<a href="${escapeHtml(runUrl)}">#${runNumber}</a>` : `#${runNumber}`;
+}
+
 function renderRunMeta(runMeta) {
   if (!runMeta.tafCommit && !runMeta.runNumber) return '';
-  const commit = runMeta.tafCommit ? `<code>${escapeHtml(runMeta.tafCommit)}</code>` : 'unknown';
-  const run = runMeta.runNumber
-    ? runMeta.runUrl
-      ? `<a href="${escapeHtml(runMeta.runUrl)}">#${runMeta.runNumber}</a>`
-      : `#${runMeta.runNumber}`
-    : 'unknown';
-  return `<p class="run-meta muted">reis-app-taf ${commit} &middot; CI run ${run}</p>`;
+  const tafCommit = runMeta.tafCommit ? `<code>${escapeHtml(runMeta.tafCommit)}</code>` : 'unknown';
+  const reisAppCommit = runMeta.reisAppCommit ? `<code>${escapeHtml(runMeta.reisAppCommit)}</code>` : 'unknown';
+  return `
+    <p class="run-meta muted">reis-app-taf ${tafCommit} &middot; CI run ${renderRunLink(runMeta.runNumber, runMeta.runUrl)} &middot; ${renderTimestamp(runMeta.runTimestampMs)}</p>
+    <p class="run-meta run-meta-reis-app">reis-app ${reisAppCommit} &middot; CI run ${renderRunLink(runMeta.reisAppRunNumber, runMeta.reisAppRunUrl)} &middot; ${renderTimestamp(runMeta.reisAppRunTimestampMs)}</p>`;
 }
 
 function renderE2eRow(b, totalE2e) {
@@ -787,16 +832,20 @@ function renderIssueTrendSummary(trend) {
   return `${trend.successRatePercent}% <span class="muted">(${trend.passed}/${trend.total})</span><br /><span class="muted">${streakLabel}</span>`;
 }
 
+const UNKNOWN_MUTED = '<span class="muted">unknown</span>';
+
 function renderIssueTrendDetails(trend) {
   const rows = trend.runs
     .map(
       (run) => `
           <tr>
             <td data-ts="${run.timestampMs}">${escapeHtml(new Date(run.timestampMs).toISOString())}</td>
-            <td>${run.tafCommit ? `<code>${escapeHtml(run.tafCommit)}</code>` : '<span class="muted">unknown</span>'}</td>
-            <td>${run.tafRunNumber && run.tafRunUrl ? `<a href="${escapeHtml(run.tafRunUrl)}">#${run.tafRunNumber}</a>` : '<span class="muted">unknown</span>'}</td>
+            <td>${run.tafCommit ? `<code>${escapeHtml(run.tafCommit)}</code>` : UNKNOWN_MUTED}</td>
+            <td>${renderRunLink(run.tafRunNumber, run.tafRunUrl, UNKNOWN_MUTED)}</td>
             <td><span class="badge badge-${run.status === 'passed' ? 'pass' : 'fail'}">${run.status === 'passed' ? 'Passed' : 'Failed'}</span></td>
-            <td>${run.reisAppVersion ? `<code>${escapeHtml(run.reisAppVersion)}</code>` : '<span class="muted">unknown</span>'}</td>
+            <td class="reis-app-group group-divider">${renderTimestamp(run.reisAppRunTimestampMs, UNKNOWN_MUTED)}</td>
+            <td class="reis-app-group">${run.reisAppVersion ? `<code>${escapeHtml(run.reisAppVersion)}</code>` : UNKNOWN_MUTED}</td>
+            <td class="reis-app-group">${renderRunLink(run.reisAppRunNumber, run.reisAppRunUrl, UNKNOWN_MUTED)}</td>
           </tr>`,
     )
     .join('\n');
@@ -807,7 +856,12 @@ function renderIssueTrendDetails(trend) {
       run's own report snapshot - linked from that run's own job summary - is only kept for the last 20 runs;
       older rows above may show a live CI log with no report to go with it any more.</p>
       <table class="suite-table trend-table">
-        <thead><tr><th>Run</th><th>reis-app-taf version</th><th>CI run</th><th>Status</th><th>reis-app version</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Run</th><th>reis-app-taf version</th><th>CI run</th><th>Status</th>
+            <th class="reis-app-group group-divider">reis-app run</th><th class="reis-app-group">reis-app version</th><th class="reis-app-group">reis-app CI run</th>
+          </tr>
+        </thead>
         <tbody>${rows}</tbody>
       </table>
     </details>`;
@@ -873,6 +927,8 @@ const CSS = `
   --fail-bg: #fee2e2;
   --warn: #9a6b1f;
   --warn-bg: #faf0dc;
+  --reis-app-bg: #eef2ff;
+  --reis-app-line: #c7d2fe;
 }
 * { box-sizing: border-box; }
 body {
@@ -896,6 +952,8 @@ h1 { margin: 6px 0 12px; font-size: 28px; }
 .lede { margin: 0; color: var(--muted); }
 .run-meta { margin: 10px 0 0; font-size: 13px; }
 .run-meta code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
+.run-meta-reis-app { margin-top: 6px; display: inline-block; padding: 4px 10px; border-radius: 999px; background: var(--reis-app-bg); border: 1px solid var(--reis-app-line); color: var(--text); }
+.run-meta-reis-app code { background: #ffffff; }
 .group { margin-top: 28px; }
 .group h2 { font-size: 16px; margin: 0 0 10px; }
 .muted { color: var(--muted); }
@@ -925,6 +983,8 @@ td .muted { font-size: 12px; }
 .trend-note { margin: 8px 0 0; font-size: 12px; }
 .trend-table { margin-top: 8px; box-shadow: none; }
 .trend-table th, .trend-table td { padding: 6px 10px; font-size: 12px; }
+.trend-table .reis-app-group { background: var(--reis-app-bg); }
+.trend-table .group-divider { border-left: 2px solid var(--reis-app-line); }
 .excluded { margin-top: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
 .excluded h2 { margin: 0 0 8px; font-size: 16px; }
 .excluded ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
